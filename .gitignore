@@ -1,0 +1,34 @@
+bin/
+obj/
+/packages/
+riderModule.iml
+/_ReSharper.Caches/
+
+# IDE and local tooling
+.idea/
+.vscode/
+*.user
+*.suo
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+appsettings.Local.json
+secrets.json
+
+# Frontend build and test artifacts
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+.angular/
+
+# Logs and generated files
+*.log
+artifacts/
+
+# Confidential challenge material
+IDEASGROUP_Prueba_Tecnica_26-2907.pdf
+.~lock.*
