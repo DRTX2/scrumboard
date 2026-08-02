@@ -1,0 +1,42 @@
+<section class="projects-page">
+  <div class="heading">
+    <div><p class="eyebrow">PORTAFOLIO</p><h1 class="page-title">Proyectos</h1><p>Organiza el trabajo de tus equipos y entra a cada tablero.</p></div>
+    <p-button label="Nuevo proyecto" icon="pi pi-plus" (onClick)="openCreate()" />
+  </div>
+
+  <div class="table-card surface-card">
+    <p-toolbar>
+      <ng-template pTemplate="start"><strong>{{ total }} proyecto{{ total === 1 ? '' : 's' }}</strong></ng-template>
+      <ng-template pTemplate="end">
+        <span class="p-input-icon-left"><i class="pi pi-search"></i><input #query pInputText placeholder="Buscar proyectos" [value]="search" (input)="searchChanged(query.value)"></span>
+      </ng-template>
+    </p-toolbar>
+    <p-table [value]="projects" [lazy]="true" [paginator]="true" [rows]="rows" [first]="first" [totalRecords]="total" [loading]="loading" [rowsPerPageOptions]="[5,10,20]" responsiveLayout="stack" (onLazyLoad)="lazyLoad($event)" sortField="updatedAt" [sortOrder]="-1">
+      <ng-template pTemplate="header"><tr><th pSortableColumn="name">Proyecto <p-sortIcon field="name" /></th><th pSortableColumn="status">Estado <p-sortIcon field="status" /></th><th pSortableColumn="updatedAt">Actualizado <p-sortIcon field="updatedAt" /></th><th><span class="sr-only">Acciones</span></th></tr></ng-template>
+      <ng-template pTemplate="body" let-project>
+        <tr>
+          <td><button class="project-link" (click)="openBoard(project)"><span>{{ project.name.charAt(0).toUpperCase() }}</span><span><strong>{{ project.name }}</strong><small>{{ project.description || 'Sin descripción' }}</small></span></button></td>
+          <td><p-tag [value]="statusLabel(project.status)" [severity]="severity(project.status)" /></td>
+          <td>{{ project.updatedAt ? (project.updatedAt | date:'mediumDate') : '—' }}</td>
+          <td class="actions"><button pButton class="p-button-text p-button-rounded" icon="pi pi-pencil" aria-label="Editar" (click)="openEdit(project)"></button><button pButton class="p-button-text p-button-rounded p-button-danger" icon="pi pi-trash" aria-label="Eliminar" (click)="confirmDelete(project)"></button><button pButton class="p-button-text p-button-rounded" icon="pi pi-arrow-right" aria-label="Abrir tablero" (click)="openBoard(project)"></button></td>
+        </tr>
+      </ng-template>
+      <ng-template pTemplate="emptymessage"><tr><td colspan="4"><div class="empty-state"><i class="pi pi-folder-open"></i><strong>No hay proyectos</strong><p>Crea uno o cambia la búsqueda.</p></div></td></tr></ng-template>
+    </p-table>
+  </div>
+</section>
+
+<p-dialog [(visible)]="dialogOpen" [modal]="true" [header]="selected ? 'Editar proyecto' : 'Nuevo proyecto'" [style]="{ width: '32rem' }" [draggable]="false">
+  <form class="dialog-form" [formGroup]="form" (ngSubmit)="save()">
+    <label for="project-name">Nombre</label><input id="project-name" pInputText formControlName="name" autofocus>
+    @if (form.controls.name.touched && form.controls.name.invalid) { <small>El nombre es obligatorio (máximo 120 caracteres).</small> }
+    <label for="project-description">Descripción</label><textarea id="project-description" pInputText formControlName="description" rows="4"></textarea>
+    <label for="project-status">Estado</label><p-dropdown inputId="project-status" formControlName="status" [options]="statuses" appendTo="body" />
+    <div class="date-fields">
+      <span><label for="project-start">Inicio</label><input id="project-start" type="date" pInputText formControlName="startDate"></span>
+      <span><label for="project-end">Fin esperado</label><input id="project-end" type="date" pInputText formControlName="expectedEndDate"></span>
+    </div>
+    <div class="dialog-actions"><p-button label="Cancelar" styleClass="p-button-text" (onClick)="dialogOpen = false" /><p-button type="submit" label="Guardar" [loading]="saving" /></div>
+  </form>
+</p-dialog>
+<p-confirmDialog />

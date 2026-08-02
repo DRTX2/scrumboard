@@ -1,0 +1,10 @@
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { font-family: Inter, system-ui, sans-serif; color: var(--text-color); background: #f5f7fb; }
+button, input, textarea { font: inherit; }
+.page-title { margin: 0; font-size: 1.55rem; letter-spacing: -.025em; }
+.surface-card { border: 1px solid var(--surface-border); }
+.p-toast { max-width: calc(100vw - 2rem); }
+.empty-state { padding: 3rem 1rem; text-align: center; color: var(--text-color-secondary); }
+.empty-state .pi { display: block; margin-bottom: 1rem; font-size: 2.5rem; }
+@media (max-width: 640px) { .p-dialog { width: calc(100vw - 2rem) !important; } }

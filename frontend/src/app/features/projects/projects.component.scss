@@ -1,0 +1,27 @@
+.projects-page { max-width: 1400px; margin: auto; }
+.heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
+.heading p { margin: .45rem 0 0; color: var(--text-color-secondary); } .heading .eyebrow { margin: 0 0 .45rem; color: #1673c9; font-size: .68rem; font-weight: 700; letter-spacing: .14em; }
+.table-card { overflow: hidden; background: white; border-radius: 14px; box-shadow: 0 10px 35px rgba(27, 50, 78, .04); }
+::ng-deep .p-toolbar { border: 0; border-bottom: 1px solid var(--surface-border); border-radius: 0; background: transparent; padding: 1rem 1.25rem; }
+.project-link { display: flex; align-items: center; gap: .85rem; width: 100%; min-width: 240px; padding: 0; border: 0; color: inherit; text-align: left; background: transparent; cursor: pointer; }
+.project-link > span:first-child { flex: none; width: 2.5rem; height: 2.5rem; display: grid; place-items: center; border-radius: 9px; color: #0b518e; background: #e5f2ff; font-weight: 700; }
+.project-link strong, .project-link small { display: block; } .project-link small { max-width: 430px; margin-top: .3rem; overflow: hidden; color: var(--text-color-secondary); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+.actions { text-align: right; white-space: nowrap; }
+.dialog-form label { display: block; margin: 1rem 0 .4rem; font-weight: 600; font-size: .85rem; } .dialog-form input, .dialog-form textarea, .dialog-form p-dropdown { display: block; width: 100%; } .dialog-form small { color: var(--red-500); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1.5rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+@media (max-width: 640px) { .heading { align-items: start; } .heading > div > p:last-child { display: none; } ::ng-deep .p-toolbar { align-items: stretch; gap: .8rem; } .p-input-icon-left, .p-input-icon-left input { width: 100%; } .actions { text-align: left; } }
+.date-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.date-fields span {
+  display: grid;
+  gap: 0.5rem;
+}
+
+@media (max-width: 560px) {
+  .date-fields { grid-template-columns: 1fr; }
+}

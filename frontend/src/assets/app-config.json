@@ -1,0 +1,16 @@
+{
+  "apiBaseUrl": "/api",
+  "hubUrl": "/hubs/boards",
+  "endpoints": {
+    "sessions": "/v1/sessions",
+    "projects": "/v1/projects",
+    "project": "/v1/projects/{projectId}",
+    "board": "/v1/projects/{projectId}/board",
+    "columns": "/v1/projects/{projectId}/columns",
+    "column": "/v1/projects/{projectId}/columns/{columnId}",
+    "tasks": "/v1/projects/{projectId}/tasks",
+    "task": "/v1/projects/{projectId}/tasks/{taskId}",
+    "members": "/v1/projects/{projectId}/members",
+    "reports": "/v1/projects/{projectId}/reports"
+  }
+}

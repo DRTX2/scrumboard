@@ -1,0 +1,20 @@
+<div class="layout" [class.menu-open]="menuOpen()">
+  <header class="topbar">
+    <button class="menu-button" type="button" aria-label="Abrir menú" (click)="menuOpen.set(!menuOpen())"><i class="pi pi-bars"></i></button>
+    <a class="logo" routerLink="/"><span><i class="pi pi-sitemap"></i></span><strong>ScrumBoard</strong></a>
+    <div class="topbar-user">
+      <div><strong>{{ user()?.name || 'Usuario' }}</strong><small>{{ user()?.email }}</small></div>
+      <p-avatar [label]="(user()?.name || 'U').charAt(0).toUpperCase()" shape="circle" />
+      <button pButton type="button" class="p-button-text p-button-rounded" icon="pi pi-sign-out" aria-label="Cerrar sesión" (click)="logout()"></button>
+    </div>
+  </header>
+  <aside class="sidebar">
+    <p class="menu-label">ESPACIO DE TRABAJO</p>
+    <nav>
+      <a routerLink="/projects" routerLinkActive="active" (click)="menuOpen.set(false)"><i class="pi pi-th-large"></i><span>Proyectos</span></a>
+    </nav>
+    <div class="sidebar-footer"><span class="status-dot"></span><span>Servicios operativos</span></div>
+  </aside>
+  @if (menuOpen()) { <button class="backdrop" aria-label="Cerrar menú" (click)="menuOpen.set(false)"></button> }
+  <main class="content"><router-outlet /></main>
+</div>

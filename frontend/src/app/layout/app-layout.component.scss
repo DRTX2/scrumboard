@@ -1,0 +1,21 @@
+.layout { min-height: 100vh; --topbar: 72px; --sidebar: 248px; }
+.topbar { position: fixed; z-index: 100; inset: 0 0 auto 0; height: var(--topbar); display: flex; align-items: center; padding: 0 1.5rem; border-bottom: 1px solid var(--surface-border); background: rgba(255,255,255,.96); backdrop-filter: blur(12px); }
+.logo { width: calc(var(--sidebar) - 1.5rem); display: flex; align-items: center; gap: .75rem; color: #102b52; text-decoration: none; font-size: 1.12rem; }
+.logo span { width: 2.25rem; height: 2.25rem; display: grid; place-items: center; color: #08213f; background: #6ee7d3; border-radius: 10px; }
+.topbar-user { margin-left: auto; display: flex; align-items: center; gap: .8rem; }
+.topbar-user > div { text-align: right; } .topbar-user strong, .topbar-user small { display: block; font-size: .82rem; } .topbar-user small { margin-top: .15rem; color: var(--text-color-secondary); }
+.sidebar { position: fixed; z-index: 90; top: var(--topbar); bottom: 0; left: 0; width: var(--sidebar); display: flex; flex-direction: column; padding: 1.5rem 1rem; border-right: 1px solid var(--surface-border); background: white; }
+.menu-label { margin: 0 .75rem 1rem; color: var(--text-color-secondary); font-size: .68rem; font-weight: 700; letter-spacing: .1em; }
+nav a { display: flex; align-items: center; gap: .85rem; padding: .85rem 1rem; border-radius: 10px; color: #536276; text-decoration: none; font-weight: 600; font-size: .9rem; }
+nav a:hover { background: #f4f7fb; } nav a.active { color: #0f4e8a; background: #eaf3ff; }
+.sidebar-footer { margin-top: auto; padding: .8rem; display: flex; align-items: center; gap: .6rem; color: var(--text-color-secondary); font-size: .75rem; }
+.status-dot { width: .5rem; height: .5rem; background: #10b981; border-radius: 50%; box-shadow: 0 0 0 4px #d1fae5; }
+.content { min-height: 100vh; padding: calc(var(--topbar) + 2rem) 2rem 2rem calc(var(--sidebar) + 2rem); }
+.menu-button { display: none; border: 0; background: none; font-size: 1.2rem; }
+.backdrop { display: none; }
+@media (max-width: 800px) {
+  .topbar { padding: 0 1rem; } .menu-button { display: block; margin-right: .75rem; } .logo { width: auto; } .logo strong { display: none; }
+  .topbar-user > div { display: none; } .sidebar { transform: translateX(-102%); transition: transform .2s; box-shadow: 10px 0 35px rgba(15, 35, 60, .12); }
+  .menu-open .sidebar { transform: translateX(0); } .backdrop { display: block; position: fixed; z-index: 80; inset: var(--topbar) 0 0; border: 0; background: rgba(3,15,30,.35); }
+  .content { padding: calc(var(--topbar) + 1.25rem) 1rem 1rem; }
+}
