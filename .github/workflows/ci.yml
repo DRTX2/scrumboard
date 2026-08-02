@@ -101,7 +101,7 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
       - name: Scan API image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: scrumboard-api:ci
           format: table
@@ -109,7 +109,7 @@ jobs:
           ignore-unfixed: true
           severity: HIGH,CRITICAL
       - name: Scan migrator image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: scrumboard-migrator:ci
           format: table
@@ -117,7 +117,7 @@ jobs:
           ignore-unfixed: true
           severity: HIGH,CRITICAL
       - name: Scan frontend image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: scrumboard-frontend:ci
           format: table
