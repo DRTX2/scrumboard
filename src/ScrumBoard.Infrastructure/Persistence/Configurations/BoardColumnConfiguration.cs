@@ -1,0 +1,25 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using ScrumBoard.Domain.Boards;
+using ScrumBoard.Domain.Projects;
+
+namespace ScrumBoard.Infrastructure.Persistence.Configurations;
+
+internal sealed class BoardColumnConfiguration : IEntityTypeConfiguration<BoardColumn>
+{
+    public void Configure(EntityTypeBuilder<BoardColumn> builder)
+    {
+        builder.ToTable("board_columns");
+        builder.HasKey(column => column.Id);
+        builder.Property(column => column.Id).HasColumnName("id");
+        builder.Property(column => column.ProjectId).HasColumnName("project_id");
+        builder.Property(column => column.Name).HasColumnName("name").HasMaxLength(100).IsRequired();
+        builder.Property(column => column.Position).HasColumnName("position");
+        builder.Property(column => column.Version).HasColumnName("version").IsConcurrencyToken();
+        builder.Property(column => column.CreatedAt).HasColumnName("created_at");
+        builder.Property(column => column.UpdatedAt).HasColumnName("updated_at");
+        builder.HasOne<Project>().WithMany().HasForeignKey(column => column.ProjectId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasIndex(column => new { column.ProjectId, column.Position })
+            .IsUnique().HasDatabaseName("ux_board_columns_project_position");
+    }
+}
