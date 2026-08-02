@@ -19,6 +19,7 @@ Este roadmap separa endurecimiento necesario de evolución funcional. Las fechas
 - Añadir logs estructurados con redacción de tokens, claves y datos personales.
 - Publicar imágenes por digest, generar SBOM y firmar artefactos de release.
 - Fijar GitHub Actions por SHA y habilitar actualización automatizada de dependencias.
+- Migrar Angular y PrimeNG a una línea corregida cuando el requisito de Angular 17 deje de aplicar.
 
 ## Siguiente: calidad y resiliencia
 

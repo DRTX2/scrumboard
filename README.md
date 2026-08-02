@@ -141,6 +141,10 @@ La presencia se mantiene en memoria, por lo que la topología actual admite una 
 
 `.env` está ignorado por Git y `.env.example` solo contiene valores de demo. En producción, inyecte secretos desde el gestor de secretos de la plataforma, use claves aleatorias largas, TLS extremo a extremo, rotación de credenciales y un usuario PostgreSQL con privilegios separados para migración y ejecución. El Compose local sirve HTTP; no representa por sí solo un despliegue público endurecido.
 
+### Riesgo conocido de Angular 17
+
+`npm audit --omit=dev` reporta 10 vulnerabilidades altas en la línea Angular/PrimeNG exigida por el reto. La corrección automática disponible migra a Angular 22 y rompe la restricción de Angular 17, por lo que no se aplicó de forma encubierta. Esta SPA no usa SSR, `HttpTransferCache`, plantillas dinámicas ni HTML proporcionado por usuarios, lo que reduce la exposición de varios avisos, pero no elimina la deuda. CI bloquea nuevas vulnerabilidades críticas y el salto de versión está registrado en el roadmap.
+
 ## Desarrollo y pruebas
 
 Backend:
@@ -170,7 +174,7 @@ npx playwright install chromium
 npm run e2e
 ```
 
-La automatización en `.github/workflows/ci.yml` restaura, compila y prueba .NET; prueba y compila Angular; construye las tres imágenes; y bloquea vulnerabilidades corregibles de severidad alta o crítica encontradas por Trivy.
+La automatización en `.github/workflows/ci.yml` restaura, compila y prueba .NET; audita dependencias runtime, prueba y compila Angular; construye las tres imágenes; y bloquea vulnerabilidades corregibles de severidad alta o crítica encontradas por Trivy.
 
 ## Evidencia visual
 
