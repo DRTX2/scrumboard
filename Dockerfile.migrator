@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1.7
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim AS restore
+WORKDIR /src
+
+COPY global.json Directory.Build.props Directory.Packages.props ./
+COPY src/ScrumBoard.Domain/ScrumBoard.Domain.csproj src/ScrumBoard.Domain/
+COPY src/ScrumBoard.Application/ScrumBoard.Application.csproj src/ScrumBoard.Application/
+COPY src/ScrumBoard.Infrastructure/ScrumBoard.Infrastructure.csproj src/ScrumBoard.Infrastructure/
+COPY src/ScrumBoard.Migrator/ScrumBoard.Migrator.csproj src/ScrumBoard.Migrator/
+RUN dotnet restore src/ScrumBoard.Migrator/ScrumBoard.Migrator.csproj
+
+FROM restore AS publish
+COPY src/ src/
+RUN dotnet publish src/ScrumBoard.Migrator/ScrumBoard.Migrator.csproj \
+    --configuration Release \
+    --no-restore \
+    --output /app/publish \
+    /p:UseAppHost=false
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-bookworm-slim AS runtime
+WORKDIR /app
+COPY --from=publish --chown=$APP_UID:$APP_UID /app/publish ./
+
+ENV DOTNET_EnableDiagnostics=0
+USER $APP_UID
+ENTRYPOINT ["dotnet", "ScrumBoard.Migrator.dll"]

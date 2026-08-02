@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="720" viewBox="0 0 1200 720" role="img" aria-labelledby="title description">
+  <title id="title">ScrumBoard PostgreSQL data model</title>
+  <desc id="description">Entity relationship overview for users, projects, memberships, columns, tasks and idempotency records.</desc>
+  <rect width="1200" height="720" fill="#0b1220"/>
+  <text x="60" y="58" fill="#f8fafc" font-family="Arial, sans-serif" font-size="28" font-weight="700">ScrumBoard PostgreSQL model</text>
+  <text x="60" y="86" fill="#94a3b8" font-family="Arial, sans-serif" font-size="15">Primary relationships and concurrency fields</text>
+
+  <g stroke="#334155" stroke-width="3" fill="none">
+    <path d="M310 210 H440"/><path d="M600 250 V340"/><path d="M760 210 H890"/>
+    <path d="M310 510 H440"/><path d="M760 510 H890"/><path d="M205 290 V430"/>
+    <path d="M995 290 V430"/>
+  </g>
+  <g fill="#38bdf8">
+    <circle cx="310" cy="210" r="5"/><circle cx="440" cy="210" r="5"/>
+    <circle cx="600" cy="250" r="5"/><circle cx="600" cy="340" r="5"/>
+    <circle cx="760" cy="210" r="5"/><circle cx="890" cy="210" r="5"/>
+    <circle cx="310" cy="510" r="5"/><circle cx="440" cy="510" r="5"/>
+    <circle cx="760" cy="510" r="5"/><circle cx="890" cy="510" r="5"/>
+  </g>
+
+  <g font-family="Arial, sans-serif">
+    <g transform="translate(60 130)"><rect width="250" height="160" rx="12" fill="#172033" stroke="#38bdf8"/><text x="20" y="34" fill="#f8fafc" font-size="19" font-weight="700">users</text><text x="20" y="65" fill="#cbd5e1" font-size="14">PK id : uuid</text><text x="20" y="89" fill="#cbd5e1" font-size="14">UK email : varchar</text><text x="20" y="113" fill="#cbd5e1" font-size="14">password_hash : varchar</text><text x="20" y="137" fill="#cbd5e1" font-size="14">is_active : boolean</text></g>
+    <g transform="translate(440 110)"><rect width="320" height="140" rx="12" fill="#172033" stroke="#a78bfa"/><text x="20" y="34" fill="#f8fafc" font-size="19" font-weight="700">project_members</text><text x="20" y="65" fill="#cbd5e1" font-size="14">PK, FK project_id : uuid</text><text x="20" y="89" fill="#cbd5e1" font-size="14">PK, FK user_id : uuid</text><text x="20" y="113" fill="#cbd5e1" font-size="14">role : Owner | Member</text></g>
+    <g transform="translate(890 130)"><rect width="250" height="160" rx="12" fill="#172033" stroke="#38bdf8"/><text x="20" y="34" fill="#f8fafc" font-size="19" font-weight="700">projects</text><text x="20" y="65" fill="#cbd5e1" font-size="14">PK id : uuid</text><text x="20" y="89" fill="#cbd5e1" font-size="14">status + date range</text><text x="20" y="113" fill="#cbd5e1" font-size="14">version : bigint</text><text x="20" y="137" fill="#cbd5e1" font-size="14">board_version : bigint</text></g>
+    <g transform="translate(60 430)"><rect width="250" height="160" rx="12" fill="#172033" stroke="#34d399"/><text x="20" y="34" fill="#f8fafc" font-size="19" font-weight="700">idempotency_records</text><text x="20" y="65" fill="#cbd5e1" font-size="14">user + operation + key</text><text x="20" y="89" fill="#cbd5e1" font-size="14">request_hash : char(64)</text><text x="20" y="113" fill="#cbd5e1" font-size="14">response_body : jsonb</text><text x="20" y="137" fill="#cbd5e1" font-size="14">expires_at : timestamptz</text></g>
+    <g transform="translate(440 340)"><rect width="320" height="170" rx="12" fill="#172033" stroke="#f59e0b"/><text x="20" y="34" fill="#f8fafc" font-size="19" font-weight="700">board_columns</text><text x="20" y="65" fill="#cbd5e1" font-size="14">PK id : uuid</text><text x="20" y="89" fill="#cbd5e1" font-size="14">FK project_id : uuid</text><text x="20" y="113" fill="#cbd5e1" font-size="14">position : bigint</text><text x="20" y="137" fill="#cbd5e1" font-size="14">version : bigint</text></g>
+    <g transform="translate(890 430)"><rect width="250" height="210" rx="12" fill="#172033" stroke="#f472b6"/><text x="20" y="34" fill="#f8fafc" font-size="19" font-weight="700">tasks</text><text x="20" y="65" fill="#cbd5e1" font-size="14">PK id : uuid</text><text x="20" y="89" fill="#cbd5e1" font-size="14">FK project_id, column_id</text><text x="20" y="113" fill="#cbd5e1" font-size="14">FK assignee_id : uuid?</text><text x="20" y="137" fill="#cbd5e1" font-size="14">priority + due_date</text><text x="20" y="161" fill="#cbd5e1" font-size="14">position : bigint</text><text x="20" y="185" fill="#cbd5e1" font-size="14">version : bigint</text></g>
+  </g>
+  <text x="60" y="680" fill="#64748b" font-family="Arial, sans-serif" font-size="14">Detailed constraints and indexes: docs/data-model.md</text>
+</svg>
