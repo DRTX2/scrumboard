@@ -14,6 +14,7 @@ public sealed class TaskItem
         string? description,
         TaskPriority priority,
         Guid? assigneeId,
+        DateOnly? dueDate,
         long position,
         DateTimeOffset now)
     {
@@ -24,6 +25,7 @@ public sealed class TaskItem
         Description = Guard.Optional(description, 4_000);
         Priority = priority;
         AssigneeId = assigneeId;
+        DueDate = dueDate;
         Position = position;
         CreatedAt = now;
         UpdatedAt = now;
@@ -36,6 +38,7 @@ public sealed class TaskItem
     public string? Description { get; private set; }
     public TaskPriority Priority { get; private set; }
     public Guid? AssigneeId { get; private set; }
+    public DateOnly? DueDate { get; private set; }
     public long Position { get; private set; }
     public long Version { get; private set; } = 1;
     public DateTimeOffset CreatedAt { get; private set; }
@@ -46,12 +49,14 @@ public sealed class TaskItem
         string? description,
         TaskPriority priority,
         Guid? assigneeId,
+        DateOnly? dueDate,
         DateTimeOffset now)
     {
         Title = Guard.Required(title, nameof(title), 200);
         Description = Guard.Optional(description, 4_000);
         Priority = priority;
         AssigneeId = assigneeId;
+        DueDate = dueDate;
         Version++;
         UpdatedAt = now;
     }

@@ -104,7 +104,7 @@ public sealed class BoardService(
         var position = NextPosition<TaskItem>(tasks.Select(task => task.Position).ToList(), tasks.Count, null, null,
             (task, value) => task.Move(task.ColumnId, value, clock.UtcNow));
         var task = new TaskItem(Guid.NewGuid(), projectId, request.ColumnId, request.Title, request.Description,
-            request.Priority, request.AssigneeId, position, clock.UtcNow);
+            request.Priority, request.AssigneeId, request.DueDate, position, clock.UtcNow);
         boards.AddTask(task);
         project.TouchBoard(clock.UtcNow);
         await unitOfWork.SaveChangesAsync(cancellationToken);
@@ -124,7 +124,7 @@ public sealed class BoardService(
         var task = await boards.FindTaskAsync(projectId, taskId, cancellationToken) ?? throw TaskNotFound();
         EnsureVersion(task.Version, expectedVersion);
         EnsureAssignee(project, request.AssigneeId);
-        task.Update(request.Title, request.Description, request.Priority, request.AssigneeId, clock.UtcNow);
+        task.Update(request.Title, request.Description, request.Priority, request.AssigneeId, request.DueDate, clock.UtcNow);
         project.TouchBoard(clock.UtcNow);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         var response = ToResponse(task, project.BoardVersion);
@@ -258,7 +258,7 @@ public sealed class BoardService(
         new(column.Id, column.ProjectId, column.Name, column.Position, column.Version, boardVersion);
     private static TaskResponse ToResponse(TaskItem task, long boardVersion) =>
         new(task.Id, task.ProjectId, task.ColumnId, task.Title, task.Description, task.Priority, task.AssigneeId,
-            task.Position, task.Version, boardVersion, task.CreatedAt, task.UpdatedAt);
+            task.DueDate, task.Position, task.Version, boardVersion, task.CreatedAt, task.UpdatedAt);
     private static NotFoundException HiddenNotFound() => new("project_not_found", "The project was not found.");
     private static NotFoundException ColumnNotFound() => new("column_not_found", "The column was not found.");
     private static NotFoundException TaskNotFound() => new("task_not_found", "The task was not found.");

@@ -51,7 +51,7 @@ internal sealed class BoardRepository(ScrumBoardDbContext dbContext) : IBoardRep
         var tasks = await tasksQuery.OrderBy(item => item.task.Position)
             .Select(item => new BoardTask(
                 item.task.Id, item.task.ColumnId, item.task.Title, item.task.Description, item.task.Priority,
-                item.task.AssigneeId, item.AssigneeName, item.task.Position, item.task.Version,
+                item.task.AssigneeId, item.AssigneeName, item.task.DueDate, item.task.Position, item.task.Version,
                 item.task.CreatedAt, item.task.UpdatedAt))
             .ToListAsync(cancellationToken);
 

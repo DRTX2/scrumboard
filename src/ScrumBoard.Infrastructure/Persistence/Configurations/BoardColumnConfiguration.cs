@@ -20,6 +20,6 @@ internal sealed class BoardColumnConfiguration : IEntityTypeConfiguration<BoardC
         builder.Property(column => column.UpdatedAt).HasColumnName("updated_at");
         builder.HasOne<Project>().WithMany().HasForeignKey(column => column.ProjectId).OnDelete(DeleteBehavior.Cascade);
         builder.HasIndex(column => new { column.ProjectId, column.Position })
-            .IsUnique().HasDatabaseName("ux_board_columns_project_position");
+            .HasDatabaseName("ix_board_columns_project_position");
     }
 }

@@ -1,7 +1,12 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using ScrumBoard.Infrastructure.Persistence;
 
 var builder = Host.CreateApplicationBuilder(args);
+builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
 var connectionString = builder.Configuration.GetConnectionString("Database")
     ?? throw new InvalidOperationException("ConnectionStrings:Database is required.");
 builder.Services.AddDbContext<ScrumBoardDbContext>(options =>

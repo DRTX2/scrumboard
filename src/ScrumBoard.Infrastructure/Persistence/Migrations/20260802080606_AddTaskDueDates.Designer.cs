@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using ScrumBoard.Infrastructure.Persistence;
@@ -11,9 +12,11 @@ using ScrumBoard.Infrastructure.Persistence;
 namespace ScrumBoard.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(ScrumBoardDbContext))]
-    partial class ScrumBoardDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260802080606_AddTaskDueDates")]
+    partial class AddTaskDueDates
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -59,7 +62,8 @@ namespace ScrumBoard.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ProjectId", "Position")
-                        .HasDatabaseName("ix_board_columns_project_position");
+                        .IsUnique()
+                        .HasDatabaseName("ux_board_columns_project_position");
 
                     b.ToTable("board_columns", (string)null);
 
@@ -346,7 +350,8 @@ namespace ScrumBoard.Infrastructure.Persistence.Migrations
                     b.HasIndex("AssigneeId");
 
                     b.HasIndex("ColumnId", "Position")
-                        .HasDatabaseName("ix_tasks_column_position");
+                        .IsUnique()
+                        .HasDatabaseName("ux_tasks_column_position");
 
                     b.HasIndex("ProjectId", "AssigneeId")
                         .HasDatabaseName("ix_tasks_project_assignee");

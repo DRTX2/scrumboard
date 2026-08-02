@@ -9,4 +9,5 @@ public sealed class NotFoundException(string code, string message) : Application
 public sealed class ForbiddenException(string code, string message) : ApplicationProblemException(code, message);
 public sealed class ConflictException(string code, string message) : ApplicationProblemException(code, message);
 public sealed class PreconditionFailedException(string code, string message) : ApplicationProblemException(code, message);
+public sealed class PreconditionRequiredException() : ApplicationProblemException("if_match_required", "The If-Match header is required for this operation.");
 public sealed class AuthenticationFailedException() : ApplicationProblemException("invalid_credentials", "Email or password is incorrect.");

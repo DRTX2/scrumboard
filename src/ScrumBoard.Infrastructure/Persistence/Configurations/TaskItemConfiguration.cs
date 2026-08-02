@@ -20,6 +20,7 @@ internal sealed class TaskItemConfiguration : IEntityTypeConfiguration<TaskItem>
         builder.Property(task => task.Description).HasColumnName("description").HasMaxLength(4_000);
         builder.Property(task => task.Priority).HasColumnName("priority").HasConversion<string>().HasMaxLength(16);
         builder.Property(task => task.AssigneeId).HasColumnName("assignee_id");
+        builder.Property(task => task.DueDate).HasColumnName("due_date");
         builder.Property(task => task.Position).HasColumnName("position");
         builder.Property(task => task.Version).HasColumnName("version").IsConcurrencyToken();
         builder.Property(task => task.CreatedAt).HasColumnName("created_at");
@@ -27,8 +28,8 @@ internal sealed class TaskItemConfiguration : IEntityTypeConfiguration<TaskItem>
         builder.HasOne<Project>().WithMany().HasForeignKey(task => task.ProjectId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<BoardColumn>().WithMany().HasForeignKey(task => task.ColumnId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<User>().WithMany().HasForeignKey(task => task.AssigneeId).OnDelete(DeleteBehavior.SetNull);
-        builder.HasIndex(task => new { task.ColumnId, task.Position }).IsUnique()
-            .HasDatabaseName("ux_tasks_column_position");
+        builder.HasIndex(task => new { task.ColumnId, task.Position })
+            .HasDatabaseName("ix_tasks_column_position");
         builder.HasIndex(task => new { task.ProjectId, task.AssigneeId }).HasDatabaseName("ix_tasks_project_assignee");
         builder.HasIndex(task => new { task.ProjectId, task.Priority }).HasDatabaseName("ix_tasks_project_priority");
     }

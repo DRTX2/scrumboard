@@ -13,6 +13,7 @@ public sealed record BoardTask(
     TaskPriority Priority,
     Guid? AssigneeId,
     string? AssigneeName,
+    DateOnly? DueDate,
     long Position,
     long Version,
     DateTimeOffset CreatedAt,
@@ -35,8 +36,9 @@ public sealed record CreateTask(
     string Title,
     string? Description,
     TaskPriority Priority,
-    Guid? AssigneeId);
-public sealed record UpdateTask(string Title, string? Description, TaskPriority Priority, Guid? AssigneeId);
+    Guid? AssigneeId,
+    DateOnly? DueDate);
+public sealed record UpdateTask(string Title, string? Description, TaskPriority Priority, Guid? AssigneeId, DateOnly? DueDate);
 public sealed record MoveTask(Guid ColumnId, Guid? BeforeTaskId, Guid? AfterTaskId);
 public sealed record TaskResponse(
     Guid Id,
@@ -46,6 +48,7 @@ public sealed record TaskResponse(
     string? Description,
     TaskPriority Priority,
     Guid? AssigneeId,
+    DateOnly? DueDate,
     long Position,
     long Version,
     long BoardVersion,

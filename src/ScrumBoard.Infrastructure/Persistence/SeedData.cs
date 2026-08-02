@@ -85,17 +85,18 @@ internal static class SeedData
         Guid assigneeId,
         long position,
         DateTimeOffset now) => new
-    {
-        Id = id,
-        ProjectId,
-        ColumnId = columnId,
-        Title = title,
-        Description = description,
-        Priority = priority,
-        AssigneeId = (Guid?)assigneeId,
-        Position = position,
-        Version = 1L,
-        CreatedAt = now,
-        UpdatedAt = now
-    };
+        {
+            Id = id,
+            ProjectId,
+            ColumnId = columnId,
+            Title = title,
+            Description = description,
+            Priority = priority,
+            AssigneeId = (Guid?)assigneeId,
+            DueDate = (DateOnly?)null,
+            Position = position,
+            Version = 1L,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
 }
