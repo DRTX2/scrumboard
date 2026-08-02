@@ -19,9 +19,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
           cache: true
@@ -34,7 +34,7 @@ jobs:
         run: dotnet test ScrumBoard.sln --configuration Release --no-build --logger "trx" --results-directory artifacts/test-results --collect:"XPlat Code Coverage"
       - name: Publish test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: dotnet-test-results
           path: artifacts/test-results
@@ -49,9 +49,9 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version-file: frontend/.nvmrc
           cache: npm
@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build API image
