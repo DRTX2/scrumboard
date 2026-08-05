@@ -1,0 +1,363 @@
+name: Deploy Azure
+
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [develop, main]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment environment
+        required: true
+        type: choice
+        options: [staging, production]
+      ref:
+        description: Branch to deploy (develop for staging, main for production)
+        required: true
+        default: develop
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-azure-${{ github.event.workflow_run.head_branch || inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Resolve deployment
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    outputs:
+      environment: ${{ steps.metadata.outputs.environment }}
+      sha: ${{ steps.metadata.outputs.sha }}
+    steps:
+      - name: Validate deployment source
+        id: source
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          WORKFLOW_SHA: ${{ github.event.workflow_run.head_sha }}
+          MANUAL_ENVIRONMENT: ${{ inputs.environment }}
+          MANUAL_REF: ${{ inputs.ref }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            expected_ref="develop"
+            if [ "$MANUAL_ENVIRONMENT" = "production" ]; then expected_ref="main"; fi
+            if [ "$MANUAL_REF" != "$expected_ref" ]; then
+              echo "$MANUAL_ENVIRONMENT deployments must use the $expected_ref branch."
+              exit 1
+            fi
+            echo "ref=$MANUAL_REF" >> "$GITHUB_OUTPUT"
+            echo "environment=$MANUAL_ENVIRONMENT" >> "$GITHUB_OUTPUT"
+          else
+            environment="staging"
+            if [ "$WORKFLOW_BRANCH" = "main" ]; then environment="production"; fi
+            echo "ref=$WORKFLOW_SHA" >> "$GITHUB_OUTPUT"
+            echo "environment=$environment" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.source.outputs.ref }}
+
+      - name: Resolve immutable commit
+        id: metadata
+        env:
+          DEPLOYMENT_ENVIRONMENT: ${{ steps.source.outputs.environment }}
+        run: |
+          echo "environment=$DEPLOYMENT_ENVIRONMENT" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  images:
+    name: Build, scan and publish ${{ matrix.name }}
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: api
+            image: scrumboard-api
+            context: .
+            dockerfile: Dockerfile.api
+          - name: migrator
+            image: scrumboard-migrator
+            context: .
+            dockerfile: Dockerfile.migrator
+          - name: web
+            image: scrumboard-web
+            context: frontend
+            dockerfile: frontend/Dockerfile
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Resolve image reference
+        id: image
+        env:
+          IMAGE_NAME: ${{ matrix.image }}
+          IMAGE_TAG: ${{ needs.prepare.outputs.sha }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "name=ghcr.io/$owner/$IMAGE_NAME" >> "$GITHUB_OUTPUT"
+          echo "ref=ghcr.io/$owner/$IMAGE_NAME:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build image for security scan
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          load: true
+          push: false
+          tags: ${{ steps.image.outputs.ref }}
+          cache-from: type=gha,scope=azure-${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=azure-${{ matrix.name }}
+
+      - name: Scan image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+
+      - name: Generate CycloneDX SBOM
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: cyclonedx
+          output: sbom-${{ matrix.name }}.cdx.json
+          exit-code: "0"
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom-${{ needs.prepare.outputs.environment }}-${{ matrix.name }}
+          path: sbom-${{ matrix.name }}.cdx.json
+          retention-days: 90
+
+      - name: Authenticate to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PUSH_TOKEN }}
+
+      - name: Push immutable image
+        id: push
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+        run: |
+          docker push "$IMAGE_REF"
+          digest=$(docker inspect --format='{{ index .RepoDigests 0 }}' "$IMAGE_REF")
+          echo "digest=${digest#*@}" >> "$GITHUB_OUTPUT"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  deploy:
+    name: Deploy ${{ needs.prepare.outputs.environment }}
+    needs: [prepare, images]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment:
+      name: ${{ needs.prepare.outputs.environment }}
+      url: ${{ steps.urls.outputs.frontend_url }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      IMAGE_TAG: ${{ needs.prepare.outputs.sha }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      AZURE_APP_LOCATION: ${{ vars.AZURE_APP_LOCATION }}
+      AZURE_ENVIRONMENT_NAME: ${{ vars.AZURE_ENVIRONMENT_NAME }}
+      AZURE_CONTAINER_ENV_NAME: ${{ vars.AZURE_CONTAINER_ENV_NAME }}
+      AZURE_CONTAINER_ENV_RESOURCE_GROUP: ${{ vars.AZURE_CONTAINER_ENV_RESOURCE_GROUP }}
+      MIN_REPLICAS: ${{ vars.MIN_REPLICAS || '0' }}
+      REMOVE_DEMO_WORKSPACE: ${{ vars.REMOVE_DEMO_WORKSPACE || 'false' }}
+      GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Authenticate to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate Azure targets
+        run: |
+          test -n "$AZURE_RESOURCE_GROUP"
+          test -n "$AZURE_APP_LOCATION"
+          test -n "$AZURE_ENVIRONMENT_NAME"
+          test -n "$AZURE_CONTAINER_ENV_NAME"
+          test -n "$AZURE_CONTAINER_ENV_RESOURCE_GROUP"
+          az group show --name "$AZURE_RESOURCE_GROUP" --output none
+          az containerapp env show \
+            --name "$AZURE_CONTAINER_ENV_NAME" \
+            --resource-group "$AZURE_CONTAINER_ENV_RESOURCE_GROUP" \
+            --output none
+
+      - name: Deploy migration job
+        env:
+          DATABASE_CONNECTION_STRING: ${{ secrets.DATABASE_CONNECTION_STRING }}
+          PASSWORD_PEPPER: ${{ secrets.PASSWORD_PEPPER }}
+          BOOTSTRAP_ADMIN_NAME: ${{ vars.BOOTSTRAP_ADMIN_NAME }}
+          BOOTSTRAP_ADMIN_EMAIL: ${{ secrets.BOOTSTRAP_ADMIN_EMAIL }}
+          BOOTSTRAP_ADMIN_PASSWORD: ${{ secrets.BOOTSTRAP_ADMIN_PASSWORD }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          az deployment group create \
+            --name "migration-job-$IMAGE_TAG" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --template-file deploy/azure/migration-job.bicep \
+            --parameters environmentName="$AZURE_ENVIRONMENT_NAME" \
+            --parameters location="$AZURE_APP_LOCATION" \
+            --parameters containerEnvironmentName="$AZURE_CONTAINER_ENV_NAME" \
+            --parameters containerEnvironmentResourceGroup="$AZURE_CONTAINER_ENV_RESOURCE_GROUP" \
+            --parameters migrationImage="ghcr.io/$owner/scrumboard-migrator:$IMAGE_TAG" \
+            --parameters registryUsername="$GHCR_USERNAME" \
+            --parameters registryPassword="$GHCR_READ_TOKEN" \
+            --parameters databaseConnectionString="$DATABASE_CONNECTION_STRING" \
+            --parameters passwordPepper="$PASSWORD_PEPPER" \
+            --parameters bootstrapAdminName="$BOOTSTRAP_ADMIN_NAME" \
+            --parameters bootstrapAdminEmail="$BOOTSTRAP_ADMIN_EMAIL" \
+            --parameters bootstrapAdminPassword="$BOOTSTRAP_ADMIN_PASSWORD" \
+            --parameters removeDemoWorkspace="$REMOVE_DEMO_WORKSPACE" \
+            --output none
+
+      - name: Run migrations and bootstrap seed
+        run: |
+          job_name="$AZURE_ENVIRONMENT_NAME-migrations"
+          execution_name=$(az containerapp job start \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --name "$job_name" \
+            --query name \
+            --output tsv)
+          echo "Started migration execution: $execution_name"
+
+          for attempt in $(seq 1 120); do
+            status=$(az containerapp job execution show \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$job_name" \
+              --job-execution-name "$execution_name" \
+              --query properties.status \
+              --output tsv)
+            echo "Migration status ($attempt/120): $status"
+            if [ "$status" = "Succeeded" ]; then exit 0; fi
+            if [ "$status" = "Failed" ] || [ "$status" = "Canceled" ]; then exit 1; fi
+            sleep 10
+          done
+
+          echo "Migration execution timed out."
+          exit 1
+
+      - name: Deploy application revisions
+        env:
+          DATABASE_CONNECTION_STRING: ${{ secrets.DATABASE_CONNECTION_STRING }}
+          JWT_SIGNING_KEY: ${{ secrets.JWT_SIGNING_KEY }}
+          PASSWORD_PEPPER: ${{ secrets.PASSWORD_PEPPER }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          az deployment group create \
+            --name "applications-$IMAGE_TAG" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --template-file deploy/azure/apps.bicep \
+            --parameters environmentName="$AZURE_ENVIRONMENT_NAME" \
+            --parameters location="$AZURE_APP_LOCATION" \
+            --parameters containerEnvironmentName="$AZURE_CONTAINER_ENV_NAME" \
+            --parameters containerEnvironmentResourceGroup="$AZURE_CONTAINER_ENV_RESOURCE_GROUP" \
+            --parameters apiImage="ghcr.io/$owner/scrumboard-api:$IMAGE_TAG" \
+            --parameters frontendImage="ghcr.io/$owner/scrumboard-web:$IMAGE_TAG" \
+            --parameters registryUsername="$GHCR_USERNAME" \
+            --parameters registryPassword="$GHCR_READ_TOKEN" \
+            --parameters databaseConnectionString="$DATABASE_CONNECTION_STRING" \
+            --parameters jwtSigningKey="$JWT_SIGNING_KEY" \
+            --parameters passwordPepper="$PASSWORD_PEPPER" \
+            --parameters minReplicas="$MIN_REPLICAS" \
+            --output none
+
+      - name: Wait for latest revisions
+        run: |
+          for app in "$AZURE_ENVIRONMENT_NAME-api" "$AZURE_ENVIRONMENT_NAME-web"; do
+            for attempt in $(seq 1 60); do
+              latest=$(az containerapp show --resource-group "$AZURE_RESOURCE_GROUP" --name "$app" --query properties.latestRevisionName --output tsv)
+              ready=$(az containerapp show --resource-group "$AZURE_RESOURCE_GROUP" --name "$app" --query properties.latestReadyRevisionName --output tsv)
+              if [ -n "$latest" ] && [ "$latest" = "$ready" ]; then
+                echo "$app revision ready: $ready"
+                break
+              fi
+              if [ "$attempt" -eq 60 ]; then
+                echo "$app did not activate revision $latest. Last ready revision: $ready"
+                exit 1
+              fi
+              sleep 10
+            done
+          done
+
+      - name: Resolve public URLs
+        id: urls
+        run: |
+          api_fqdn=$(az containerapp show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_ENVIRONMENT_NAME-api" --query properties.configuration.ingress.fqdn --output tsv)
+          frontend_fqdn=$(az containerapp show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_ENVIRONMENT_NAME-web" --query properties.configuration.ingress.fqdn --output tsv)
+          echo "api_url=https://$api_fqdn" >> "$GITHUB_OUTPUT"
+          echo "frontend_url=https://$frontend_fqdn" >> "$GITHUB_OUTPUT"
+
+      - name: Post-deployment smoke test
+        env:
+          API_URL: ${{ steps.urls.outputs.api_url }}
+          FRONTEND_URL: ${{ steps.urls.outputs.frontend_url }}
+          ADMIN_EMAIL: ${{ secrets.BOOTSTRAP_ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.BOOTSTRAP_ADMIN_PASSWORD }}
+        run: |
+          curl --fail --silent --show-error "$API_URL/health/live"
+          curl --fail --silent --show-error "$API_URL/health/ready"
+          curl --fail --silent --show-error "$FRONTEND_URL/" > /dev/null
+          status=$(curl --silent --show-error \
+            --output /tmp/session.json \
+            --write-out '%{http_code}' \
+            --request POST "$API_URL/api/v1/sessions" \
+            --header 'Content-Type: application/json' \
+            --data "$(jq -n --arg email "$ADMIN_EMAIL" --arg password "$ADMIN_PASSWORD" '{email:$email,password:$password}')")
+          test "$status" = "200"
+          jq -e '.accessToken | length > 0' /tmp/session.json > /dev/null
+          rm -f /tmp/session.json
+
+      - name: Deployment summary
+        env:
+          API_URL: ${{ steps.urls.outputs.api_url }}
+          FRONTEND_URL: ${{ steps.urls.outputs.frontend_url }}
+          DEPLOYMENT_ENVIRONMENT: ${{ needs.prepare.outputs.environment }}
+        run: |
+          {
+            echo "### Azure Container Apps deployment"
+            echo ""
+            echo "| Property | Value |"
+            echo "|---|---|"
+            echo "| Environment | $DEPLOYMENT_ENVIRONMENT |"
+            echo "| Commit | $IMAGE_TAG |"
+            echo "| API | $API_URL |"
+            echo "| Web | $FRONTEND_URL |"
+            echo "| Migration job | $AZURE_ENVIRONMENT_NAME-migrations |"
+          } >> "$GITHUB_STEP_SUMMARY"

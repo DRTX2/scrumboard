@@ -6,6 +6,7 @@ COPY . .
 RUN npm run build
 
 FROM nginxinc/nginx-unprivileged:1.29-alpine
+LABEL org.opencontainers.image.source="https://github.com/DRTX2/scrumboard"
 USER root
 RUN apk upgrade --no-cache && apk add --no-cache gettext
 COPY --from=build --chown=101:101 /app/dist/scrum-board/browser /usr/share/nginx/html
