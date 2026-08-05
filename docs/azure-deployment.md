@@ -27,7 +27,7 @@ Los paquetes GHCR permanecen privados y se vinculan al repositorio mediante OCI 
 4. La promoción se realiza mediante PR de `develop` hacia `main`; no se reconstruye código distinto para una revisión concreta y todas las imágenes mantienen tags inmutables.
 5. El merge a `main` ejecuta nuevamente los gates y prepara `production` mediante su GitHub Environment y sus secretos aislados; el rollout requiere aprobación explícita del propietario.
 
-`workflow_dispatch` permite repetir un despliegue, pero valida que `staging` use `develop` y `production` use `main`. Los grupos de concurrencia evitan dos rollouts simultáneos del mismo ambiente.
+`workflow_dispatch` permite repetir un despliegue, pero valida que `staging` use `develop` y `production` use `main`. El Environment de staging también admite `main` como rama controladora porque GitHub ejecuta los jobs `workflow_run` desde la default branch; la validación del workflow sigue exigiendo que el CI origen y el SHA desplegado pertenezcan a `develop`. Los grupos de concurrencia evitan dos rollouts simultáneos del mismo ambiente.
 
 ## Orden de despliegue
 
@@ -101,7 +101,7 @@ Con `az` y `gh` autenticados:
 ./scripts/provision-azure-oidc.sh
 ```
 
-El script crea los dos resource groups, reutiliza `env-mplink`, crea o reconcilia la app registration `scrumboard-github-actions`, registra subjects OIDC por GitHub Environment y asigna `Contributor` únicamente en los tres resource groups necesarios. No crea client secrets de Azure ni concede `Owner` o `User Access Administrator`.
+El script crea los dos resource groups, reutiliza `env-mplink`, crea o reconcilia la app registration `scrumboard-github-actions`, consulta el prefijo OIDC inmutable del repositorio, registra subjects por GitHub Environment y asigna `Contributor` únicamente en los tres resource groups necesarios. No crea client secrets de Azure ni concede `Owner` o `User Access Administrator`.
 
 Los secretos funcionales se cargan por stdin desde variables del shell:
 
