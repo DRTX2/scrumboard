@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using ScrumBoard.Api.Adapters.Outbound.Persistence;
 using ScrumBoard.Api.Infrastructure.Idempotency;
@@ -21,6 +22,8 @@ using ScrumBoard.Domain.Projects;
 using ScrumBoard.Domain.Tasks;
 using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence;
 using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence.Models;
+using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence.Seed;
+using ScrumBoard.Infrastructure.Adapters.Outbound.Security;
 
 namespace ScrumBoard.IntegrationTests.Adapters.Outbound.Persistence;
 
@@ -121,6 +124,42 @@ public sealed class PostgreSqlPersistenceTests(PostgreSqlFixture database)
         {
             await migrator.MigrateAsync("20260805042120_HardenIdempotencyRecords");
             await dbContext.IdempotencyRecords.Where(item => item.Id == record.Id).ExecuteDeleteAsync();
+        }
+    }
+
+    [DockerFact]
+    public async Task BootstrapAdminSeeder_ReconcilesCloudCredentialsAndDisablesDemoMember()
+    {
+        database.EnsureAvailable();
+        await using var provider = database.BuildServices();
+        await using var scope = provider.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ScrumBoardDbContext>();
+        const string cloudPepper = "cloud-test-pepper-with-32-characters";
+        const string cloudPassword = "CloudPassword-2026!";
+
+        try
+        {
+            await BootstrapAdminSeeder.ApplyAsync(dbContext, "Cloud Owner", "Cloud.Owner@Example.com",
+                cloudPassword, cloudPepper, disableDemoMember: true, removeDemoWorkspace: false);
+            dbContext.ChangeTracker.Clear();
+
+            var owner = await dbContext.Users.SingleAsync(user => user.Id == DemoOwnerId);
+            var memberActive = await dbContext.Users
+                .Where(user => user.Id == Guid.Parse("10000000-0000-0000-0000-000000000002"))
+                .Select(user => user.IsActive)
+                .SingleAsync();
+            var hasher = new Pbkdf2PasswordHasher(Options.Create(new PasswordOptions { Pepper = cloudPepper }));
+
+            Assert.Equal("Cloud Owner", owner.Name);
+            Assert.Equal("cloud.owner@example.com", owner.Email);
+            Assert.True(hasher.Verify(cloudPassword, owner.PasswordHash));
+            Assert.False(memberActive);
+        }
+        finally
+        {
+            await BootstrapAdminSeeder.ApplyAsync(dbContext, "Demo Owner", "owner@scrumboard.local",
+                "ScrumBoard123!", "scrumboard-development-pepper-only", disableDemoMember: false,
+                removeDemoWorkspace: false);
         }
     }
 
