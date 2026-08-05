@@ -54,7 +54,7 @@ Si cambia `API_PORT` o `FRONTEND_PORT`, ajuste también `API_PUBLIC_URL`, `HUB_P
 | Propietario | `owner@scrumboard.local` | `ScrumBoard123!` |
 | Miembro | `member@scrumboard.local` | `ScrumBoard123!` |
 
-Estas cuentas y la contraseña son exclusivamente para desarrollo. El propietario puede administrar columnas; ambos miembros pueden trabajar con tareas. No despliegue los datos semilla ni los secretos de `.env.example` en un entorno real.
+Estas cuentas y la contraseña son exclusivamente para desarrollo. El propietario puede administrar columnas; ambos miembros pueden trabajar con tareas. El job cloud reemplaza las credenciales del propietario con secretos del ambiente, desactiva el miembro demo y elimina el workspace de ejemplo en production. Nunca use los secretos de `.env.example` fuera del entorno local.
 
 ## Arquitectura
 
@@ -70,6 +70,10 @@ La solución sigue una separación por capas:
 La API y el migrador se publican en imágenes multi-stage y se ejecutan como el usuario no privilegiado de .NET. El frontend usa `nginx-unprivileged` como UID 101. La base de datos es el único componente con volumen persistente.
 
 Consulte [el diagrama de arquitectura](docs/architecture.md) y [el modelo de datos](docs/data-model.md).
+
+## Azure Container Apps
+
+El ciclo cloud usa `develop` para staging y `main` para production. GitHub Actions publica imágenes GHCR inmutables, ejecuta el job de migración antes del rollout y valida la revisión activa mediante healthchecks y login. Consulte [la guía completa de Azure y DevOps](docs/azure-deployment.md).
 
 ## API y endpoints
 
