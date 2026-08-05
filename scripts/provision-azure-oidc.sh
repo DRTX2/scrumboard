@@ -79,6 +79,24 @@ for deployment_environment in staging production; do
   if [ "$deployment_environment" = "production" ]; then resource_suffix="prod"; fi
   resource_group="scrumboard-${resource_suffix}-rg-south"
   environment_prefix="scrumboard-${resource_suffix}"
+  deployment_branch="develop"
+  if [ "$deployment_environment" = "production" ]; then deployment_branch="main"; fi
+  environment_configuration=$(jq -n \
+    '{deployment_branch_policy:{protected_branches:false,custom_branch_policies:true}}')
+  gh api \
+    --method PUT \
+    "repos/$repository/environments/$deployment_environment" \
+    --input - <<< "$environment_configuration" > /dev/null
+  branch_policy=$(gh api \
+    "repos/$repository/environments/$deployment_environment/deployment-branch-policies" \
+    --jq ".branch_policies[] | select(.name == \"$deployment_branch\") | .id")
+  if [ -z "$branch_policy" ]; then
+    gh api \
+      --method POST \
+      "repos/$repository/environments/$deployment_environment/deployment-branch-policies" \
+      -f name="$deployment_branch" \
+      > /dev/null
+  fi
   printf '%s' "$application_id" | gh secret set AZURE_CLIENT_ID --repo "$repository" --env "$deployment_environment"
   printf '%s' "$tenant_id" | gh secret set AZURE_TENANT_ID --repo "$repository" --env "$deployment_environment"
   printf '%s' "$subscription_id" | gh secret set AZURE_SUBSCRIPTION_ID --repo "$repository" --env "$deployment_environment"
