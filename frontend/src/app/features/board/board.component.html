@@ -61,17 +61,17 @@
   }
 </section>
 
-<p-dialog [(visible)]="columnDialog" [modal]="true" [header]="selectedColumn ? 'Editar columna' : 'Nueva columna'" [style]="{ width: '28rem' }" [draggable]="false">
-  <form class="dialog-form" [formGroup]="columnForm" (ngSubmit)="saveColumn()"><label for="column-name">Nombre</label><input id="column-name" pInputText formControlName="name" autofocus>@if (columnForm.controls.name.touched && columnForm.controls.name.invalid) { <small>El nombre es obligatorio.</small> }<div class="dialog-actions"><p-button label="Cancelar" styleClass="p-button-text" (onClick)="columnDialog = false" /><p-button type="submit" label="Guardar" [loading]="saving" /></div></form>
+<p-dialog [(visible)]="columnDialog" [modal]="true" [header]="selectedColumn ? 'Editar columna' : 'Nueva columna'" [style]="{ width: '28rem' }" [draggable]="false" [closable]="!saving" [closeOnEscape]="!saving">
+  <form class="dialog-form" [formGroup]="columnForm" (ngSubmit)="saveColumn()"><label for="column-name">Nombre</label><input id="column-name" pInputText formControlName="name" autofocus>@if (columnForm.controls.name.touched && columnForm.controls.name.invalid) { <small>El nombre es obligatorio.</small> }<div class="dialog-actions"><p-button label="Cancelar" styleClass="p-button-text" [disabled]="saving" (onClick)="columnDialog = false" /><p-button type="submit" label="Guardar" [loading]="saving" /></div></form>
 </p-dialog>
 
-<p-dialog [(visible)]="taskDialog" [modal]="true" [header]="selectedTask ? 'Editar tarea' : 'Nueva tarea'" [style]="{ width: '36rem' }" [draggable]="false">
+<p-dialog [(visible)]="taskDialog" [modal]="true" [header]="selectedTask ? 'Editar tarea' : 'Nueva tarea'" [style]="{ width: '36rem' }" [draggable]="false" [closable]="!saving" [closeOnEscape]="!saving">
   <form class="dialog-form task-form" [formGroup]="taskForm" (ngSubmit)="saveTask()">
     <label for="task-title">Título</label><input id="task-title" pInputText formControlName="title" autofocus>@if (taskForm.controls.title.touched && taskForm.controls.title.invalid) { <small>El título es obligatorio.</small> }
     <label for="task-description">Descripción</label><textarea id="task-description" pInputText formControlName="description" rows="4"></textarea>
     <div class="form-grid"><div><label for="task-priority">Prioridad</label><p-dropdown inputId="task-priority" formControlName="priority" [options]="priorities" appendTo="body" /></div><div><label for="task-assignee">Responsable</label><p-dropdown inputId="task-assignee" formControlName="assigneeId" [options]="members" optionLabel="name" optionValue="id" placeholder="Sin asignar" [showClear]="true" appendTo="body" /></div></div>
     <label for="task-due">Fecha límite</label><input id="task-due" pInputText type="date" formControlName="dueDate">
-    <div class="dialog-actions"><p-button label="Cancelar" styleClass="p-button-text" (onClick)="taskDialog = false" /><p-button type="submit" label="Guardar" [loading]="saving" /></div>
+    <div class="dialog-actions"><p-button label="Cancelar" styleClass="p-button-text" [disabled]="saving" (onClick)="taskDialog = false" /><p-button type="submit" label="Guardar" [loading]="saving" /></div>
   </form>
 </p-dialog>
 <p-confirmDialog />

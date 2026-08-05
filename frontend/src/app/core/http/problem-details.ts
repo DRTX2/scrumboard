@@ -4,6 +4,7 @@ export interface ProblemDetails {
   status?: number;
   detail?: string;
   instance?: string;
+  code?: string;
   errors?: Record<string, string[] | string>;
 }
 

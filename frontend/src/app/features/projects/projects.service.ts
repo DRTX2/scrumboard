@@ -29,8 +29,10 @@ export class ProjectsService {
     );
   }
 
-  create(input: ProjectInput): Observable<Project> {
-    return this.http.post<Project>(this.config.endpoint('projects'), input, { observe: 'response' }).pipe(map(response => this.entity(response)));
+  create(input: ProjectInput, idempotencyKey: string): Observable<Project> {
+    return this.http.post<Project>(this.config.endpoint('projects'), input, {
+      headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey }), observe: 'response'
+    }).pipe(map(response => this.entity(response)));
   }
 
   update(project: Project, input: ProjectInput): Observable<Project> {

@@ -41,4 +41,31 @@ describe('authInterceptor', () => {
     expect(auth.logout).toHaveBeenCalledWith(true);
     expect(messages.add).toHaveBeenCalled();
   });
+
+  it('preserves a caller-provided idempotency key', () => {
+    client.post('/projects/intent', {}, { headers: { 'Idempotency-Key': 'business-intent' } }).subscribe();
+    const request = controller.expectOne('/projects/intent');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('business-intent');
+    request.flush({});
+  });
+
+  it('uses different keys for concurrent identical requests', () => {
+    client.post('/projects/concurrent', { name: 'Project' }).subscribe();
+    client.post('/projects/concurrent', { name: 'Project' }).subscribe();
+    const requests = controller.match('/projects/concurrent');
+
+    expect(requests).toHaveSize(2);
+    expect(requests[0].request.headers.get('Idempotency-Key'))
+      .not.toBe(requests[1].request.headers.get('Idempotency-Key'));
+    requests.forEach(request => request.flush({}));
+  });
+
+  it('does not retain or fingerprint an unauthenticated login body', () => {
+    auth.token.and.returnValue(null);
+    client.post('/sessions', { email: 'owner@example.com', password: 'secret' }).subscribe();
+    const request = controller.expectOne('/sessions');
+    expect(request.request.headers.has('Authorization')).toBeFalse();
+    expect(request.request.headers.has('Idempotency-Key')).toBeFalse();
+    request.flush({});
+  });
 });

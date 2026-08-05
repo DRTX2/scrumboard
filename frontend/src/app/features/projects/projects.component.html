@@ -26,7 +26,7 @@
   </div>
 </section>
 
-<p-dialog [(visible)]="dialogOpen" [modal]="true" [header]="selected ? 'Editar proyecto' : 'Nuevo proyecto'" [style]="{ width: '32rem' }" [draggable]="false">
+<p-dialog [(visible)]="dialogOpen" [modal]="true" [header]="selected ? 'Editar proyecto' : 'Nuevo proyecto'" [style]="{ width: '32rem' }" [draggable]="false" [closable]="!saving" [closeOnEscape]="!saving">
   <form class="dialog-form" [formGroup]="form" (ngSubmit)="save()">
     <label for="project-name">Nombre</label><input id="project-name" pInputText formControlName="name" autofocus>
     @if (form.controls.name.touched && form.controls.name.invalid) { <small>El nombre es obligatorio (máximo 120 caracteres).</small> }
@@ -36,7 +36,7 @@
       <span><label for="project-start">Inicio</label><input id="project-start" type="date" pInputText formControlName="startDate"></span>
       <span><label for="project-end">Fin esperado</label><input id="project-end" type="date" pInputText formControlName="expectedEndDate"></span>
     </div>
-    <div class="dialog-actions"><p-button label="Cancelar" styleClass="p-button-text" (onClick)="dialogOpen = false" /><p-button type="submit" label="Guardar" [loading]="saving" /></div>
+    <div class="dialog-actions"><p-button label="Cancelar" styleClass="p-button-text" [disabled]="saving" (onClick)="dialogOpen = false" /><p-button type="submit" label="Guardar" [loading]="saving" /></div>
   </form>
 </p-dialog>
 <p-confirmDialog />

@@ -12,7 +12,11 @@ export class BoardRealtimeService {
   private connection?: HubConnection;
   private boardId?: string;
   private readonly eventSubject = new Subject<BoardEvent>();
+  private readonly reconnectedSubject = new Subject<void>();
+  private readonly resubscribingSubject = new Subject<void>();
   readonly events$ = this.eventSubject.asObservable();
+  readonly reconnected$ = this.reconnectedSubject.asObservable();
+  readonly resubscribing$ = this.resubscribingSubject.asObservable();
 
   constructor(private readonly config: RuntimeConfigService, private readonly auth: AuthService) {}
 
@@ -27,7 +31,10 @@ export class BoardRealtimeService {
 
     const names: BoardEventName[] = ['TaskCreated', 'TaskUpdated', 'TaskDeleted', 'TaskMoved', 'ColumnChanged', 'PresenceChanged'];
     names.forEach(name => this.connection?.on(name, payload => this.eventSubject.next({ name, payload })));
-    this.connection.onreconnected(() => this.invoke('SubscribeToBoard', boardId));
+    this.connection.onreconnected(() => {
+      this.resubscribingSubject.next();
+      void this.resubscribe(boardId);
+    });
     await this.connection.start();
     await this.invoke('SubscribeToBoard', boardId);
   }
@@ -46,5 +53,20 @@ export class BoardRealtimeService {
 
   private async invoke(method: string, boardId: string): Promise<void> {
     await this.connection?.invoke(method, boardId);
+  }
+
+  private async resubscribe(boardId: string): Promise<void> {
+    let delay = 0;
+    while (this.boardId === boardId && this.connection?.state === HubConnectionState.Connected) {
+      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+      if (this.boardId !== boardId || this.connection?.state !== HubConnectionState.Connected) return;
+      try {
+        await this.invoke('SubscribeToBoard', boardId);
+        this.reconnectedSubject.next();
+        return;
+      } catch {
+        delay = Math.min(delay ? delay * 2 : 2000, 10000);
+      }
+    }
   }
 }

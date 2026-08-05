@@ -11,12 +11,13 @@ export const authInterceptor: HttpInterceptorFn = (request, next) => {
   const token = auth.token();
   let headers = request.headers;
   if (token) headers = headers.set('Authorization', `Bearer ${token}`);
-  if (request.method === 'POST' && !headers.has('Idempotency-Key')) {
+  if (token && request.method === 'POST' && !headers.has('Idempotency-Key')) {
     headers = headers.set('Idempotency-Key', crypto.randomUUID());
   }
 
   return next(request.clone({ headers })).pipe(
     catchError((error: HttpErrorResponse) => {
+      const problem = error.error as ProblemDetails;
       if (error.status === 401) {
         auth.logout(true);
         messages.add({ severity: 'warn', summary: 'Sesión finalizada', detail: 'Inicia sesión nuevamente.' });
@@ -24,7 +25,7 @@ export const authInterceptor: HttpInterceptorFn = (request, next) => {
         messages.add({
           severity: 'error',
           summary: error.status === 412 ? 'Datos desactualizados' : 'No se pudo completar la operación',
-          detail: problemMessage(error.error as ProblemDetails, error.message)
+          detail: problemMessage(problem, error.message)
         });
       } else {
         messages.add({ severity: 'error', summary: 'Sin conexión', detail: 'No se pudo contactar con el servidor.' });

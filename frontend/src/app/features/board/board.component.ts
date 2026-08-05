@@ -31,6 +31,9 @@ import { BoardService, TaskInput } from './board.service';
 })
 export class BoardComponent implements OnInit, OnDestroy {
   private readonly destroyRef = inject(DestroyRef);
+  private presenceVersion = 0;
+  private columnCreateIntentKey = crypto.randomUUID();
+  private taskCreateIntentKey = crypto.randomUUID();
   readonly projectId = this.route.snapshot.paramMap.get('id') ?? '';
   project: Project = { id: this.projectId, name: 'Tablero' };
   boardEtag?: string;
@@ -71,6 +74,12 @@ export class BoardComponent implements OnInit, OnDestroy {
       if (event.name === 'PresenceChanged') this.updatePresence(event.payload);
       else this.load(false);
     });
+    this.realtime.resubscribing$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
+      this.presenceVersion = 0;
+      this.connectedUsers = [];
+      this.connectedCount = 0;
+    });
+    this.realtime.reconnected$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.load(false));
   }
 
   ngOnInit(): void {
@@ -120,14 +129,19 @@ export class BoardComponent implements OnInit, OnDestroy {
     });
   }
 
-  openNewColumn(): void { this.selectedColumn = null; this.columnForm.reset({ name: '' }); this.columnDialog = true; }
+  openNewColumn(): void {
+    this.selectedColumn = null;
+    this.columnCreateIntentKey = crypto.randomUUID();
+    this.columnForm.reset({ name: '' });
+    this.columnDialog = true;
+  }
   openEditColumn(column: BoardColumn): void { this.selectedColumn = column; this.columnForm.reset({ name: column.name }); this.columnDialog = true; }
   saveColumn(): void {
     if (this.columnForm.invalid) { this.columnForm.markAllAsTouched(); return; }
     this.saving = true;
     const request = this.selectedColumn
       ? this.boardService.updateColumn(this.projectId, this.selectedColumn, this.columnForm.getRawValue())
-      : this.boardService.createColumn(this.projectId, this.columnForm.getRawValue());
+      : this.boardService.createColumn(this.projectId, this.columnForm.getRawValue(), this.columnCreateIntentKey);
     request.pipe(finalize(() => this.saving = false)).subscribe({ next: () => { this.columnDialog = false; this.load(false); }, error: () => undefined });
   }
 
@@ -137,7 +151,7 @@ export class BoardComponent implements OnInit, OnDestroy {
   }
 
   openNewTask(column: BoardColumn): void {
-    this.selectedTask = null; this.targetColumnId = column.id;
+    this.selectedTask = null; this.targetColumnId = column.id; this.taskCreateIntentKey = crypto.randomUUID();
     this.taskForm.reset({ title: '', description: '', priority: 'medium', assigneeId: '', dueDate: '' });
     this.taskDialog = true;
   }
@@ -155,7 +169,7 @@ export class BoardComponent implements OnInit, OnDestroy {
     const input: TaskInput = { ...value, assigneeId: value.assigneeId || null, dueDate: value.dueDate || null, columnId: this.targetColumnId };
     const request = this.selectedTask
       ? this.boardService.updateTask(this.projectId, this.selectedTask, input)
-      : this.boardService.createTask(this.projectId, input);
+      : this.boardService.createTask(this.projectId, input, this.taskCreateIntentKey);
     request.pipe(finalize(() => this.saving = false)).subscribe({ next: () => { this.taskDialog = false; this.load(false); }, error: () => undefined });
   }
 
@@ -166,7 +180,7 @@ export class BoardComponent implements OnInit, OnDestroy {
 
   download(format: 'pdf' | 'xlsx'): void {
     this.downloading = format;
-    this.boardService.report(this.projectId, format).pipe(finalize(() => this.downloading = null)).subscribe({
+    this.boardService.report(this.projectId, format, this.filters).pipe(finalize(() => this.downloading = null)).subscribe({
       next: response => {
         if (!response.body) return;
         const url = URL.createObjectURL(response.body);
@@ -190,7 +204,9 @@ export class BoardComponent implements OnInit, OnDestroy {
   }
 
   private updatePresence(payload: unknown): void {
-    const value = payload as User[] | { users?: User[]; connectedUsers?: User[]; count?: number; connectedCount?: number };
+    const value = payload as User[] | { users?: User[]; connectedUsers?: User[]; count?: number; connectedCount?: number; version?: number };
+    if (!Array.isArray(value) && value?.version != null && value.version < this.presenceVersion) return;
+    if (!Array.isArray(value) && value?.version != null) this.presenceVersion = value.version;
     this.connectedUsers = Array.isArray(value) ? value : value?.users ?? value?.connectedUsers ?? [];
     this.connectedCount = Array.isArray(value) ? value.length : value?.count ?? value?.connectedCount ?? this.connectedUsers.length;
   }

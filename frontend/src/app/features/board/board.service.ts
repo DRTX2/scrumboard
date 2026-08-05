@@ -2,7 +2,7 @@ import { HttpClient, HttpHeaders, HttpParams, HttpResponse } from '@angular/comm
 import { Injectable } from '@angular/core';
 import { catchError, forkJoin, map, Observable, of } from 'rxjs';
 import { RuntimeConfigService } from '../../core/config/runtime-config.service';
-import { Board, BoardColumn, BoardTask, User } from '../../shared/models';
+import { Board, BoardColumn, BoardTask, TaskFilters, User } from '../../shared/models';
 import { normalizeArray } from '../../shared/collection-utils';
 
 export type ColumnInput = Pick<BoardColumn, 'name'>;
@@ -20,8 +20,10 @@ export class BoardService {
     return forkJoin({ board: board$, members: members$ }).pipe(map(({ board, members }) => ({ ...board, members: board.members.length ? board.members : members })));
   }
 
-  createColumn(projectId: string, input: ColumnInput): Observable<BoardColumn> {
-    return this.http.post<BoardColumn>(this.config.endpoint('columns', { projectId }), input, { observe: 'response' }).pipe(map(response => this.entity(response)));
+  createColumn(projectId: string, input: ColumnInput, idempotencyKey: string): Observable<BoardColumn> {
+    return this.http.post<BoardColumn>(this.config.endpoint('columns', { projectId }), input, {
+      headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey }), observe: 'response'
+    }).pipe(map(response => this.entity(response)));
   }
 
   updateColumn(projectId: string, column: BoardColumn, input: ColumnInput): Observable<BoardColumn> {
@@ -36,8 +38,10 @@ export class BoardService {
     return this.http.patch<BoardColumn>(this.config.endpoint('column', { projectId, columnId: column.id }), { beforeColumnId, afterColumnId }, { headers: this.ifMatch(boardEtag), observe: 'response' }).pipe(map(response => this.entity(response)));
   }
 
-  createTask(projectId: string, input: TaskInput): Observable<BoardTask> {
-    return this.http.post<BoardTask>(this.config.endpoint('tasks', { projectId }), input, { observe: 'response' }).pipe(map(response => this.entity(response)));
+  createTask(projectId: string, input: TaskInput, idempotencyKey: string): Observable<BoardTask> {
+    return this.http.post<BoardTask>(this.config.endpoint('tasks', { projectId }), input, {
+      headers: new HttpHeaders({ 'Idempotency-Key': idempotencyKey }), observe: 'response'
+    }).pipe(map(response => this.entity(response)));
   }
 
   updateTask(projectId: string, task: BoardTask, input: TaskInput): Observable<BoardTask> {
@@ -52,8 +56,13 @@ export class BoardService {
     return this.http.patch<BoardTask>(this.config.endpoint('task', { projectId, taskId: task.id }), { columnId, beforeTaskId, afterTaskId }, { headers: this.ifMatch(boardEtag), observe: 'response' }).pipe(map(response => this.entity(response)));
   }
 
-  report(projectId: string, format: 'pdf' | 'xlsx'): Observable<HttpResponse<Blob>> {
-    return this.http.get(this.config.endpoint('reports', { projectId }), { params: new HttpParams().set('format', format), responseType: 'blob', observe: 'response' });
+  report(projectId: string, format: 'pdf' | 'xlsx', filters: TaskFilters): Observable<HttpResponse<Blob>> {
+    let params = new HttpParams().set('format', format);
+    const search = filters.search.trim();
+    if (search) params = params.set('search', search);
+    if (filters.assigneeId) params = params.set('assigneeId', filters.assigneeId);
+    if (filters.priority) params = params.set('priority', filters.priority);
+    return this.http.get(this.config.endpoint('reports', { projectId }), { params, responseType: 'blob', observe: 'response' });
   }
 
   private normalizeBoard(response: unknown): Board {

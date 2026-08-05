@@ -44,6 +44,7 @@ export class ProjectsComponent implements OnInit {
     expectedEndDate: [this.isoDate(30), Validators.required]
   });
   private searchTimer?: ReturnType<typeof setTimeout>;
+  private createIntentKey = crypto.randomUUID();
 
   constructor(
     private readonly fb: FormBuilder,
@@ -78,6 +79,7 @@ export class ProjectsComponent implements OnInit {
 
   openCreate(): void {
     this.selected = null;
+    this.createIntentKey = crypto.randomUUID();
     this.form.reset({ name: '', description: '', status: 'active', startDate: this.isoDate(0), expectedEndDate: this.isoDate(30) });
     this.dialogOpen = true;
   }
@@ -92,7 +94,9 @@ export class ProjectsComponent implements OnInit {
     if (this.form.invalid) { this.form.markAllAsTouched(); return; }
     this.saving = true;
     const input: ProjectInput = this.form.getRawValue();
-    const request = this.selected ? this.projectsService.update(this.selected, input) : this.projectsService.create(input);
+    const request = this.selected
+      ? this.projectsService.update(this.selected, input)
+      : this.projectsService.create(input, this.createIntentKey);
     request.pipe(finalize(() => this.saving = false)).subscribe({
       next: () => {
         this.dialogOpen = false;
