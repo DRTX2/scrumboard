@@ -17,7 +17,7 @@ ghcr.io/drtx2/scrumboard-web:<sha>
 ghcr.io/drtx2/scrumboard-migrator:<sha>
 ```
 
-Los paquetes GHCR son públicos para permitir pulls anónimos desde Container Apps. No se almacenan tokens de registro en Azure. API y web usan revision mode `Single`; la API queda limitada a una réplica hasta incorporar un backplane distribuido para SignalR.
+Los paquetes GHCR permanecen privados y se vinculan al repositorio mediante OCI source labels. Cada GitHub Environment conserva un `GHCR_READ_TOKEN`, que Azure almacena como secret ref de registro. API y web usan revision mode `Single`; la API queda limitada a una réplica hasta incorporar un backplane distribuido para SignalR.
 
 ## Ciclo de ramas
 
@@ -72,9 +72,10 @@ AZURE_CONTAINER_ENV_RESOURCE_GROUP
 BOOTSTRAP_ADMIN_NAME
 MIN_REPLICAS
 REMOVE_DEMO_WORKSPACE
+GHCR_USERNAME
 ```
 
-Secrets requeridos:
+Secrets requeridos en cada GitHub Environment:
 
 ```text
 AZURE_CLIENT_ID
@@ -85,7 +86,10 @@ JWT_SIGNING_KEY
 PASSWORD_PEPPER
 BOOTSTRAP_ADMIN_EMAIL
 BOOTSTRAP_ADMIN_PASSWORD
+GHCR_READ_TOKEN
 ```
+
+El repositorio requiere además `GHCR_PUSH_TOKEN`, un PAT de automatización con `write:packages`. Se usa únicamente durante la publicación de imágenes; no se entrega a Azure ni a los contenedores.
 
 `DATABASE_CONNECTION_STRING` debe usar sintaxis Npgsql de pares clave/valor, TLS obligatorio y una base diferente por ambiente. No use directamente una URI PostgreSQL con opciones no soportadas por Npgsql.
 
@@ -107,10 +111,11 @@ export JWT_SIGNING_KEY='...'
 export PASSWORD_PEPPER='...'
 export BOOTSTRAP_ADMIN_EMAIL='...'
 export BOOTSTRAP_ADMIN_PASSWORD='...'
+export GHCR_READ_TOKEN='...'
 ./scripts/configure-github-secrets.sh staging
 ```
 
-Repita con valores independientes para `production`. Después del primer push de imágenes, marque `scrumboard-api`, `scrumboard-web` y `scrumboard-migrator` como paquetes públicos en GHCR.
+Repita con valores independientes para `production`. `GHCR_READ_TOKEN` debe ser un PAT reemplazable con permiso mínimo `read:packages`; `GHCR_PUSH_TOKEN` se configura una sola vez como repository secret y debe rotarse independientemente.
 
 ## Operación
 

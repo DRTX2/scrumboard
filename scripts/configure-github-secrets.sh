@@ -14,6 +14,7 @@ required=(
   PASSWORD_PEPPER
   BOOTSTRAP_ADMIN_EMAIL
   BOOTSTRAP_ADMIN_PASSWORD
+  GHCR_READ_TOKEN
 )
 
 for name in "${required[@]}"; do

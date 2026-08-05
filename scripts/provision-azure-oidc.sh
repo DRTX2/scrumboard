@@ -110,6 +110,7 @@ for deployment_environment in staging production; do
   remove_demo_workspace="false"
   if [ "$deployment_environment" = "production" ]; then remove_demo_workspace="true"; fi
   gh variable set REMOVE_DEMO_WORKSPACE --repo "$repository" --env "$deployment_environment" --body "$remove_demo_workspace"
+  gh variable set GHCR_USERNAME --repo "$repository" --env "$deployment_environment" --body "${GITHUB_REPOSITORY_OWNER:-DRTX2}"
 done
 
 echo "Azure OIDC and non-secret GitHub environment configuration completed."

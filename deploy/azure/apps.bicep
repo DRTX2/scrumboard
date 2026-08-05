@@ -16,6 +16,16 @@ param apiImage string
 @description('Immutable frontend image reference.')
 param frontendImage string
 
+@description('Private container registry server.')
+param registryServer string = 'ghcr.io'
+
+@description('Container registry username.')
+param registryUsername string
+
+@secure()
+@description('Container registry token with package read permission.')
+param registryPassword string
+
 @secure()
 @description('Npgsql PostgreSQL connection string.')
 param databaseConnectionString string
@@ -65,6 +75,10 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
       }
       secrets: [
         {
+          name: 'registry-password'
+          value: registryPassword
+        }
+        {
           name: 'database-connection-string'
           value: databaseConnectionString
         }
@@ -75,6 +89,13 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
         {
           name: 'password-pepper'
           value: passwordPepper
+        }
+      ]
+      registries: [
+        {
+          server: registryServer
+          username: registryUsername
+          passwordSecretRef: 'registry-password'
         }
       ]
     }
@@ -192,6 +213,19 @@ resource frontend 'Microsoft.App/containerApps@2024-03-01' = {
         targetPort: 8080
         transport: 'auto'
       }
+      secrets: [
+        {
+          name: 'registry-password'
+          value: registryPassword
+        }
+      ]
+      registries: [
+        {
+          server: registryServer
+          username: registryUsername
+          passwordSecretRef: 'registry-password'
+        }
+      ]
     }
     template: {
       containers: [

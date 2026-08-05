@@ -153,7 +153,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GHCR_PUSH_TOKEN }}
 
       - name: Push immutable image
         id: push
@@ -191,6 +191,7 @@ jobs:
       AZURE_CONTAINER_ENV_RESOURCE_GROUP: ${{ vars.AZURE_CONTAINER_ENV_RESOURCE_GROUP }}
       MIN_REPLICAS: ${{ vars.MIN_REPLICAS || '0' }}
       REMOVE_DEMO_WORKSPACE: ${{ vars.REMOVE_DEMO_WORKSPACE || 'false' }}
+      GHCR_USERNAME: ${{ vars.GHCR_USERNAME }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -223,6 +224,7 @@ jobs:
           BOOTSTRAP_ADMIN_NAME: ${{ vars.BOOTSTRAP_ADMIN_NAME }}
           BOOTSTRAP_ADMIN_EMAIL: ${{ secrets.BOOTSTRAP_ADMIN_EMAIL }}
           BOOTSTRAP_ADMIN_PASSWORD: ${{ secrets.BOOTSTRAP_ADMIN_PASSWORD }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           az deployment group create \
@@ -234,6 +236,8 @@ jobs:
             --parameters containerEnvironmentName="$AZURE_CONTAINER_ENV_NAME" \
             --parameters containerEnvironmentResourceGroup="$AZURE_CONTAINER_ENV_RESOURCE_GROUP" \
             --parameters migrationImage="ghcr.io/$owner/scrumboard-migrator:$IMAGE_TAG" \
+            --parameters registryUsername="$GHCR_USERNAME" \
+            --parameters registryPassword="$GHCR_READ_TOKEN" \
             --parameters databaseConnectionString="$DATABASE_CONNECTION_STRING" \
             --parameters passwordPepper="$PASSWORD_PEPPER" \
             --parameters bootstrapAdminName="$BOOTSTRAP_ADMIN_NAME" \
@@ -273,6 +277,7 @@ jobs:
           DATABASE_CONNECTION_STRING: ${{ secrets.DATABASE_CONNECTION_STRING }}
           JWT_SIGNING_KEY: ${{ secrets.JWT_SIGNING_KEY }}
           PASSWORD_PEPPER: ${{ secrets.PASSWORD_PEPPER }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           az deployment group create \
@@ -285,6 +290,8 @@ jobs:
             --parameters containerEnvironmentResourceGroup="$AZURE_CONTAINER_ENV_RESOURCE_GROUP" \
             --parameters apiImage="ghcr.io/$owner/scrumboard-api:$IMAGE_TAG" \
             --parameters frontendImage="ghcr.io/$owner/scrumboard-web:$IMAGE_TAG" \
+            --parameters registryUsername="$GHCR_USERNAME" \
+            --parameters registryPassword="$GHCR_READ_TOKEN" \
             --parameters databaseConnectionString="$DATABASE_CONNECTION_STRING" \
             --parameters jwtSigningKey="$JWT_SIGNING_KEY" \
             --parameters passwordPepper="$PASSWORD_PEPPER" \

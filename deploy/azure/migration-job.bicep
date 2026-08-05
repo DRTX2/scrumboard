@@ -13,6 +13,16 @@ param containerEnvironmentResourceGroup string
 @description('Immutable migrator image reference.')
 param migrationImage string
 
+@description('Private container registry server.')
+param registryServer string = 'ghcr.io'
+
+@description('Container registry username.')
+param registryUsername string
+
+@secure()
+@description('Container registry token with package read permission.')
+param registryPassword string
+
 @secure()
 @description('Npgsql PostgreSQL connection string.')
 param databaseConnectionString string
@@ -57,6 +67,10 @@ resource migrationJob 'Microsoft.App/jobs@2024-03-01' = {
       }
       secrets: [
         {
+          name: 'registry-password'
+          value: registryPassword
+        }
+        {
           name: 'database-connection-string'
           value: databaseConnectionString
         }
@@ -71,6 +85,13 @@ resource migrationJob 'Microsoft.App/jobs@2024-03-01' = {
         {
           name: 'bootstrap-admin-password'
           value: bootstrapAdminPassword
+        }
+      ]
+      registries: [
+        {
+          server: registryServer
+          username: registryUsername
+          passwordSecretRef: 'registry-password'
         }
       ]
     }
