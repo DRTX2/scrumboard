@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
+    branches: [develop, main]
   pull_request:
   workflow_dispatch:
 
@@ -126,3 +126,22 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
           severity: HIGH,CRITICAL
+
+  infrastructure:
+    name: Infrastructure validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate migration job Bicep
+        run: az bicep build --file deploy/azure/migration-job.bicep --outfile /tmp/migration-job.json
+      - name: Validate application Bicep
+        run: az bicep build --file deploy/azure/apps.bicep --outfile /tmp/apps.json
+      - name: Scan repository configuration
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret,misconfig
+          severity: HIGH,CRITICAL
+          exit-code: "1"
