@@ -3,7 +3,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim AS restore
 WORKDIR /src
 
-COPY global.json Directory.Build.props Directory.Packages.props ./
+COPY .editorconfig global.json Directory.Build.props Directory.Packages.props ./
 COPY src/ScrumBoard.Domain/ScrumBoard.Domain.csproj src/ScrumBoard.Domain/
 COPY src/ScrumBoard.Application/ScrumBoard.Application.csproj src/ScrumBoard.Application/
 COPY src/ScrumBoard.Infrastructure/ScrumBoard.Infrastructure.csproj src/ScrumBoard.Infrastructure/
