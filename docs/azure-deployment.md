@@ -101,7 +101,7 @@ Con `az` y `gh` autenticados:
 ./scripts/provision-azure-oidc.sh
 ```
 
-El script crea los dos resource groups, reutiliza `env-mplink`, crea o reconcilia la app registration `scrumboard-github-actions`, registra subjects OIDC por GitHub Environment y asigna `Contributor` únicamente en los tres resource groups necesarios. No crea client secrets de Azure ni concede `Owner` o `User Access Administrator`.
+El script crea los dos resource groups, reutiliza `env-mplink`, crea o reconcilia la app registration `scrumboard-github-actions`, consulta el prefijo OIDC inmutable del repositorio, registra subjects por GitHub Environment y asigna `Contributor` únicamente en los tres resource groups necesarios. No crea client secrets de Azure ni concede `Owner` o `User Access Administrator`.
 
 Los secretos funcionales se cargan por stdin desde variables del shell:
 

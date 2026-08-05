@@ -29,6 +29,13 @@ if [ -z "$application_id" ]; then
 fi
 application_object_id=$(az ad app show --id "$application_id" --query id --output tsv)
 
+oidc_subject_prefix=$(gh api \
+  "repos/$repository/actions/oidc/customization/sub" \
+  --jq '.sub_claim_prefix // empty')
+if [ -z "$oidc_subject_prefix" ]; then
+  oidc_subject_prefix="repo:$repository"
+fi
+
 service_principal_object_id=$(az ad sp list --filter "appId eq '$application_id'" --query '[0].id' --output tsv)
 if [ -z "$service_principal_object_id" ]; then
   service_principal_object_id=$(az ad sp create --id "$application_id" --query id --output tsv)
@@ -36,12 +43,17 @@ fi
 
 for deployment_environment in staging production; do
   credential_name="scrumboard-${deployment_environment}"
-  subject="repo:${repository}:environment:${deployment_environment}"
-  existing=$(az ad app federated-credential list \
+  subject="${oidc_subject_prefix}:environment:${deployment_environment}"
+  existing_subject=$(az ad app federated-credential list \
     --id "$application_object_id" \
-    --query "[?name=='$credential_name'].name | [0]" \
+    --query "[?name=='$credential_name'].subject | [0]" \
     --output tsv)
-  if [ -z "$existing" ]; then
+  if [ "$existing_subject" != "$subject" ]; then
+    if [ -n "$existing_subject" ]; then
+      az ad app federated-credential delete \
+        --id "$application_object_id" \
+        --federated-credential-id "$credential_name"
+    fi
     credential=$(jq -n \
       --arg name "$credential_name" \
       --arg subject "$subject" \
