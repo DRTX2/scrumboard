@@ -1,4 +1,4 @@
-namespace ScrumBoard.IntegrationTests;
+namespace ScrumBoard.IntegrationTests.Adapters.Outbound.Persistence;
 
 [AttributeUsage(AttributeTargets.Method)]
 public sealed class DockerFactAttribute : FactAttribute

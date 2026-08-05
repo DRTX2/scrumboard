@@ -1,11 +1,11 @@
 using ScrumBoard.Domain.Boards;
-using ScrumBoard.Domain.Common;
+using ScrumBoard.Domain.Primitives;
 using ScrumBoard.Domain.Ordering;
 using ScrumBoard.Domain.Projects;
 using ScrumBoard.Domain.Tasks;
 using ScrumBoard.Domain.Users;
 
-namespace ScrumBoard.UnitTests;
+namespace ScrumBoard.UnitTests.Domain;
 
 public sealed class DomainInvariantTests
 {
@@ -83,6 +83,17 @@ public sealed class DomainInvariantTests
         Assert.Equal("member_exists", exception.Code);
         Assert.Equal(1, project.Version);
         Assert.Single(project.Members);
+    }
+
+    [Fact]
+    public void Project_MembersCannotBeMutatedOutsideTheAggregate()
+    {
+        var project = CreateProject();
+        var members = Assert.IsAssignableFrom<ICollection<ProjectMember>>(project.Members);
+
+        Assert.True(members.IsReadOnly);
+        Assert.Throws<NotSupportedException>(() =>
+            members.Add(new ProjectMember(project.Id, Guid.NewGuid(), ProjectRole.Member)));
     }
 
     [Fact]

@@ -7,6 +7,7 @@
 
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <RollForward>Major</RollForward>
     <NoWarn>$(NoWarn);CA1707</NoWarn>
   </PropertyGroup>
 
@@ -26,6 +27,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\ScrumBoard.Domain\ScrumBoard.Domain.csproj" />
     <ProjectReference Include="..\..\src\ScrumBoard.Application\ScrumBoard.Application.csproj" />
+    <ProjectReference Include="..\..\src\ScrumBoard.Api\ScrumBoard.Api.csproj" />
   </ItemGroup>
 
 </Project>

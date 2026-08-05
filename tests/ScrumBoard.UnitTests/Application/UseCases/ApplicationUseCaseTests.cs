@@ -1,16 +1,25 @@
-using ScrumBoard.Application.Boards;
-using ScrumBoard.Application.Common;
-using ScrumBoard.Application.Projects;
-using ScrumBoard.Application.Sessions;
+using ScrumBoard.Application.Errors;
+using ScrumBoard.Application.Models.Boards;
+using ScrumBoard.Application.Models.Projects;
+using ScrumBoard.Application.Models.Reports;
+using ScrumBoard.Application.Models.Security;
+using ScrumBoard.Application.Models.Tasks;
+using ScrumBoard.Application.Ports.Inbound.Boards;
+using ScrumBoard.Application.Ports.Inbound.Projects;
+using ScrumBoard.Application.Ports.Inbound.Sessions;
+using ScrumBoard.Application.UseCases.Boards;
+using ScrumBoard.Application.UseCases.Projects;
+using ScrumBoard.Application.UseCases.Reports;
+using ScrumBoard.Application.UseCases.Sessions;
 using ScrumBoard.Domain.Boards;
 using ScrumBoard.Domain.Ordering;
 using ScrumBoard.Domain.Projects;
 using ScrumBoard.Domain.Tasks;
 using ScrumBoard.Domain.Users;
 
-namespace ScrumBoard.UnitTests;
+namespace ScrumBoard.UnitTests.Application.UseCases;
 
-public sealed class ApplicationServiceTests
+public sealed class ApplicationUseCaseTests
 {
     private static readonly DateTimeOffset Now = new(2026, 8, 2, 12, 0, 0, TimeSpan.Zero);
 
@@ -24,21 +33,22 @@ public sealed class ApplicationServiceTests
         await service.ListAsync(new ProjectListQuery(0, 500, "  roadmap  ", "name", "unexpected"), default);
 
         Assert.Equal(userId, repository.LastListUserId);
-        Assert.Equal(new ProjectListQuery(1, 100, "roadmap", "name", "desc"), repository.LastListQuery);
+        Assert.Equal(new ProjectSearchCriteria(1, 100, "roadmap", ProjectSortField.Name, SortDirection.Descending),
+            repository.LastListCriteria);
     }
 
     [Fact]
     public async Task ProjectList_WhenAnonymous_RejectsBeforeRepositoryCall()
     {
         var repository = new FakeProjectRepository();
-        var service = new ProjectService(repository, new StubCurrentUser(Guid.Empty, false), new StubClock(Now),
+        var service = new ProjectUseCase(repository, new StubCurrentUser(Guid.Empty, false), new StubClock(Now),
             new TrackingUnitOfWork());
 
         var exception = await Assert.ThrowsAsync<AuthenticationFailedException>(() =>
             service.ListAsync(new ProjectListQuery(), default));
 
         Assert.Equal("invalid_credentials", exception.Code);
-        Assert.Null(repository.LastListQuery);
+        Assert.Null(repository.LastListCriteria);
     }
 
     [Fact]
@@ -49,13 +59,13 @@ public sealed class ApplicationServiceTests
         var repository = new FakeProjectRepository();
         repository.Projects.Add(project.Id, project);
         var unitOfWork = new TrackingUnitOfWork();
-        var service = new ProjectService(repository, new StubCurrentUser(userId), new StubClock(Now.AddHours(1)), unitOfWork);
+        var service = new ProjectUseCase(repository, new StubCurrentUser(userId), new StubClock(Now.AddHours(1)), unitOfWork);
         var request = new UpdateProject("Changed", null, project.StartDate, project.ExpectedEndDate, ProjectStatus.Completed);
 
-        var exception = await Assert.ThrowsAsync<PreconditionFailedException>(() =>
+        var exception = await Assert.ThrowsAsync<OptimisticConcurrencyException>(() =>
             service.UpdateAsync(project.Id, request, expectedVersion: 99, default));
 
-        Assert.Equal("etag_mismatch", exception.Code);
+        Assert.Equal("version_mismatch", exception.Code);
         Assert.Equal("Project", project.Name);
         Assert.Equal(0, unitOfWork.SaveCount);
     }
@@ -70,7 +80,7 @@ public sealed class ApplicationServiceTests
         var repository = new FakeProjectRepository();
         repository.Projects.Add(project.Id, project);
         var unitOfWork = new TrackingUnitOfWork();
-        var service = new ProjectService(repository, new StubCurrentUser(memberId), new StubClock(Now), unitOfWork);
+        var service = new ProjectUseCase(repository, new StubCurrentUser(memberId), new StubClock(Now), unitOfWork);
 
         var exception = await Assert.ThrowsAsync<ForbiddenException>(() =>
             service.DeleteAsync(project.Id, project.Version, default));
@@ -92,7 +102,7 @@ public sealed class ApplicationServiceTests
         };
         var service = CreateBoardService(projects, boards, ownerId);
 
-        var result = await service.GetAsync(project.Id, new BoardFilter(Search: "  urgent  "), default);
+        var result = await service.GetAsync(project.Id, new TaskFilter(Search: "  urgent  "), default);
 
         Assert.Same(boards.Snapshot, result);
         Assert.Equal("urgent", boards.LastFilter?.Search);
@@ -118,9 +128,9 @@ public sealed class ApplicationServiceTests
         Assert.Equal(response.Id, boards.AddedColumn.Id);
         Assert.Equal("Ready", boards.AddedColumn.Name);
         Assert.Equal(1, unitOfWork.SaveCount);
-        var published = Assert.Single(notifier.Published);
-        Assert.Equal("ColumnChanged", published.EventName);
-        Assert.Same(response, published.Payload);
+        var published = Assert.IsType<ColumnChangedNotification>(Assert.Single(notifier.Published));
+        Assert.Equal(project.Id, published.ProjectId);
+        Assert.Same(response, published.Column);
     }
 
     [Fact]
@@ -136,10 +146,10 @@ public sealed class ApplicationServiceTests
         var notifier = new TrackingNotifier();
         var service = CreateBoardService(projects, boards, ownerId, unitOfWork, notifier);
 
-        var exception = await Assert.ThrowsAsync<PreconditionFailedException>(() =>
+        var exception = await Assert.ThrowsAsync<OptimisticConcurrencyException>(() =>
             service.UpdateColumnAsync(project.Id, column.Id, new UpdateColumn("Changed"), 2, default));
 
-        Assert.Equal("etag_mismatch", exception.Code);
+        Assert.Equal("version_mismatch", exception.Code);
         Assert.Equal("Backlog", column.Name);
         Assert.Equal(0, unitOfWork.SaveCount);
         Assert.Empty(notifier.Published);
@@ -190,7 +200,8 @@ public sealed class ApplicationServiceTests
         Assert.Equal(1536, response.Position);
         Assert.Equal(2, response.Version);
         Assert.Equal(2, response.BoardVersion);
-        Assert.Equal("TaskMoved", Assert.Single(notifier.Published).EventName);
+        var published = Assert.IsType<TaskMovedNotification>(Assert.Single(notifier.Published));
+        Assert.Same(response, published.Task);
     }
 
     [Fact]
@@ -223,9 +234,9 @@ public sealed class ApplicationServiceTests
     {
         var user = new User(Guid.NewGuid(), "Ada", "ada@example.com", "encoded", Now);
         var users = new FakeUserRepository { User = user };
-        var token = new SessionToken("access-token", Now.AddMinutes(30));
+        var token = new IssuedToken("access-token", Now.AddMinutes(30));
         var issuer = new TrackingTokenIssuer(token);
-        var service = new SessionService(users, new StubPasswordHasher(true), issuer);
+        var service = new SessionUseCase(users, new StubPasswordHasher(true), issuer);
 
         var response = await service.CreateAsync(new CreateSession("  ADA@EXAMPLE.COM  ", "password"), default);
 
@@ -240,8 +251,8 @@ public sealed class ApplicationServiceTests
     {
         var user = new User(Guid.NewGuid(), "Ada", "ada@example.com", "encoded", Now);
         var users = new FakeUserRepository { User = user };
-        var issuer = new TrackingTokenIssuer(new SessionToken("unused", Now));
-        var service = new SessionService(users, new StubPasswordHasher(false), issuer);
+        var issuer = new TrackingTokenIssuer(new IssuedToken("unused", Now));
+        var service = new SessionUseCase(users, new StubPasswordHasher(false), issuer);
 
         var exception = await Assert.ThrowsAsync<AuthenticationFailedException>(() =>
             service.CreateAsync(new CreateSession(user.Email, "wrong"), default));
@@ -250,10 +261,64 @@ public sealed class ApplicationServiceTests
         Assert.Null(issuer.IssuedFor);
     }
 
-    private static ProjectService CreateProjectService(FakeProjectRepository repository, Guid userId) =>
+    [Fact]
+    public async Task ReportGenerate_ByNonMember_HidesProjectWithoutReadingReportData()
+    {
+        var project = CreateProject(Guid.NewGuid());
+        var projects = RepositoryContaining(project);
+        var dataSource = new FakeReportDataSource();
+        var service = new ReportUseCase(projects, dataSource, [new StubReportExporter("pdf")],
+            new StubCurrentUser(Guid.NewGuid()), new StubClock(Now));
+
+        var exception = await Assert.ThrowsAsync<NotFoundException>(() =>
+            service.GenerateAsync(project.Id, "pdf", new TaskFilter(), default));
+
+        Assert.Equal("project_not_found", exception.Code);
+        Assert.Equal(0, dataSource.CallCount);
+    }
+
+    [Fact]
+    public async Task ReportGenerate_WithNoMatchingTasks_ExportsAnEmptyReport()
+    {
+        var ownerId = Guid.NewGuid();
+        var project = CreateProject(ownerId);
+        var projects = RepositoryContaining(project);
+        var data = new ProjectReportData(project.Id, project.Name, project.Description, project.StartDate,
+            project.ExpectedEndDate, project.Status, Now, []);
+        var dataSource = new FakeReportDataSource { Result = data };
+        var exporter = new StubReportExporter("pdf", "application/pdf", "pdf");
+        var service = new ReportUseCase(projects, dataSource, [exporter], new StubCurrentUser(ownerId), new StubClock(Now));
+
+        var result = await service.GenerateAsync(project.Id, "pdf", new TaskFilter(Search: "  absent  "), default);
+
+        Assert.Equal("absent", dataSource.LastFilter?.Search);
+        Assert.Same(data, exporter.Exported);
+        Assert.Equal("application/pdf", result.MediaType);
+        Assert.EndsWith(".pdf", result.FileName);
+    }
+
+    [Fact]
+    public async Task ReportGenerate_WithUnsupportedFormat_ListsRegisteredExporterInventory()
+    {
+        var ownerId = Guid.NewGuid();
+        var project = CreateProject(ownerId);
+        var service = new ReportUseCase(
+            RepositoryContaining(project),
+            new FakeReportDataSource(),
+            [new StubReportExporter("pdf"), new StubReportExporter("xlsx")],
+            new StubCurrentUser(ownerId),
+            new StubClock(Now));
+
+        var exception = await Assert.ThrowsAsync<ConflictException>(() =>
+            service.GenerateAsync(project.Id, "csv", new TaskFilter(), default));
+
+        Assert.Equal("Supported report formats are pdf and xlsx.", exception.Message);
+    }
+
+    private static ProjectUseCase CreateProjectService(FakeProjectRepository repository, Guid userId) =>
         new(repository, new StubCurrentUser(userId), new StubClock(Now), new TrackingUnitOfWork());
 
-    private static BoardService CreateBoardService(
+    private static BoardUseCase CreateBoardService(
         FakeProjectRepository projects,
         FakeBoardRepository boards,
         Guid userId,

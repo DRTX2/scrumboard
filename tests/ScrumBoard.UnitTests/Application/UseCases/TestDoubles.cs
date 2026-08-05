@@ -1,14 +1,18 @@
-using ScrumBoard.Application.Abstractions;
-using ScrumBoard.Application.Boards;
-using ScrumBoard.Application.Common;
-using ScrumBoard.Application.Projects;
-using ScrumBoard.Application.Sessions;
+using ScrumBoard.Application.Context;
+using ScrumBoard.Application.Models.Boards;
+using ScrumBoard.Application.Models.Common;
+using ScrumBoard.Application.Models.Projects;
+using ScrumBoard.Application.Models.Reports;
+using ScrumBoard.Application.Models.Security;
+using ScrumBoard.Application.Models.Tasks;
+using ScrumBoard.Application.Ports.Inbound.Boards;
+using ScrumBoard.Application.Ports.Outbound;
 using ScrumBoard.Domain.Boards;
 using ScrumBoard.Domain.Projects;
 using ScrumBoard.Domain.Tasks;
 using ScrumBoard.Domain.Users;
 
-namespace ScrumBoard.UnitTests;
+namespace ScrumBoard.UnitTests.Application.UseCases;
 
 internal sealed class StubCurrentUser(Guid userId, bool isAuthenticated = true) : ICurrentUser
 {
@@ -34,11 +38,11 @@ internal sealed class TrackingUnitOfWork : IUnitOfWork
 
 internal sealed class TrackingNotifier : IBoardNotifier
 {
-    public List<(Guid ProjectId, string EventName, object Payload)> Published { get; } = [];
+    public List<BoardNotification> Published { get; } = [];
 
-    public Task PublishAsync(Guid projectId, string eventName, object payload, CancellationToken cancellationToken)
+    public Task PublishAsync(BoardNotification notification, CancellationToken cancellationToken)
     {
-        Published.Add((projectId, eventName, payload));
+        Published.Add(notification);
         return Task.CompletedTask;
     }
 }
@@ -46,24 +50,31 @@ internal sealed class TrackingNotifier : IBoardNotifier
 internal sealed class FakeProjectRepository : IProjectRepository
 {
     public Dictionary<Guid, Project> Projects { get; } = [];
-    public ProjectListQuery? LastListQuery { get; private set; }
+    public ProjectSearchCriteria? LastListCriteria { get; private set; }
     public Guid? LastListUserId { get; private set; }
     public Project? Added { get; private set; }
     public Project? Removed { get; private set; }
+    public int MembershipCheckCount { get; private set; }
     public Func<Guid, Guid, ProjectDetails?>? DetailsFactory { get; init; }
 
     public Task<PagedResult<ProjectSummary>> ListAsync(
         Guid userId,
-        ProjectListQuery query,
+        ProjectSearchCriteria criteria,
         CancellationToken cancellationToken)
     {
         LastListUserId = userId;
-        LastListQuery = query;
-        return Task.FromResult(new PagedResult<ProjectSummary>([], query.Page, query.PageSize, 0));
+        LastListCriteria = criteria;
+        return Task.FromResult(new PagedResult<ProjectSummary>([], criteria.Page, criteria.PageSize, 0));
     }
 
     public Task<Project?> FindAsync(Guid projectId, CancellationToken cancellationToken) =>
         Task.FromResult(Projects.GetValueOrDefault(projectId));
+
+    public Task<bool> IsMemberAsync(Guid projectId, Guid userId, CancellationToken cancellationToken)
+    {
+        MembershipCheckCount++;
+        return Task.FromResult(Projects.GetValueOrDefault(projectId)?.Members.Any(member => member.UserId == userId) is true);
+    }
 
     public Task<ProjectDetails?> GetDetailsAsync(Guid projectId, Guid userId, CancellationToken cancellationToken) =>
         Task.FromResult(DetailsFactory?.Invoke(projectId, userId));
@@ -82,7 +93,7 @@ internal sealed class FakeBoardRepository : IBoardRepository
     public List<BoardColumn> Columns { get; } = [];
     public List<TaskItem> Tasks { get; } = [];
     public BoardSnapshot? Snapshot { get; set; }
-    public BoardFilter? LastFilter { get; private set; }
+    public TaskFilter? LastFilter { get; private set; }
     public bool ColumnContainsTasks { get; set; }
     public BoardColumn? AddedColumn { get; private set; }
     public BoardColumn? RemovedColumn { get; private set; }
@@ -92,12 +103,15 @@ internal sealed class FakeBoardRepository : IBoardRepository
     public Task<BoardSnapshot?> GetSnapshotAsync(
         Guid projectId,
         Guid userId,
-        BoardFilter filter,
+        TaskFilter filter,
         CancellationToken cancellationToken)
     {
         LastFilter = filter;
         return Task.FromResult(Snapshot);
     }
+
+    public Task<List<BoardMember>> GetMembersAsync(Guid projectId, CancellationToken cancellationToken) =>
+        Task.FromResult(Snapshot?.Members.ToList() ?? []);
 
     public Task<List<BoardColumn>> GetColumnsAsync(Guid projectId, CancellationToken cancellationToken) =>
         Task.FromResult(Columns.Where(column => column.ProjectId == projectId).OrderBy(column => column.Position).ToList());
@@ -145,13 +159,49 @@ internal sealed class StubPasswordHasher(bool result) : IPasswordHasher
     public bool Verify(string password, string encodedHash) => result;
 }
 
-internal sealed class TrackingTokenIssuer(SessionToken token) : ITokenIssuer
+internal sealed class TrackingTokenIssuer(IssuedToken token) : ITokenIssuer
 {
     public User? IssuedFor { get; private set; }
 
-    public SessionToken Issue(User user)
+    public IssuedToken Issue(User user)
     {
         IssuedFor = user;
         return token;
+    }
+}
+
+internal sealed class FakeReportDataSource : IReportDataSource
+{
+    public ProjectReportData? Result { get; set; }
+    public TaskFilter? LastFilter { get; private set; }
+    public int CallCount { get; private set; }
+
+    public Task<ProjectReportData?> GetAsync(
+        Guid projectId,
+        TaskFilter filter,
+        DateTimeOffset generatedAt,
+        CancellationToken cancellationToken)
+    {
+        CallCount++;
+        LastFilter = filter;
+        return Task.FromResult(Result);
+    }
+}
+
+internal sealed class StubReportExporter(
+    string format,
+    string mediaType = "application/octet-stream",
+    string fileExtension = "bin",
+    byte[]? content = null) : IReportExporter
+{
+    public string Format { get; } = format;
+    public string MediaType { get; } = mediaType;
+    public string FileExtension { get; } = fileExtension;
+    public ProjectReportData? Exported { get; private set; }
+
+    public byte[] Export(ProjectReportData data)
+    {
+        Exported = data;
+        return content ?? [1, 2, 3];
     }
 }
