@@ -27,7 +27,7 @@ Los paquetes GHCR permanecen privados y se vinculan al repositorio mediante OCI 
 4. La promoción se realiza mediante PR de `develop` hacia `main`; no se reconstruye código distinto para una revisión concreta y todas las imágenes mantienen tags inmutables.
 5. El merge a `main` ejecuta nuevamente los gates y prepara `production` mediante su GitHub Environment y sus secretos aislados; el rollout requiere aprobación explícita del propietario.
 
-`workflow_dispatch` permite repetir un despliegue, pero valida que `staging` use `develop` y `production` use `main`. Los grupos de concurrencia evitan dos rollouts simultáneos del mismo ambiente.
+`workflow_dispatch` permite repetir un despliegue, pero valida que `staging` use `develop` y `production` use `main`. El Environment de staging también admite `main` como rama controladora porque GitHub ejecuta los jobs `workflow_run` desde la default branch; la validación del workflow sigue exigiendo que el CI origen y el SHA desplegado pertenezcan a `develop`. Los grupos de concurrencia evitan dos rollouts simultáneos del mismo ambiente.
 
 ## Orden de despliegue
 
