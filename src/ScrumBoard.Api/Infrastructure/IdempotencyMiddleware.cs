@@ -1,96 +1,104 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Cryptography;
 using System.Text;
-using Microsoft.EntityFrameworkCore;
-using ScrumBoard.Application.Abstractions;
-using ScrumBoard.Application.Common;
-using ScrumBoard.Domain.Idempotency;
-using ScrumBoard.Infrastructure.Persistence;
+using ScrumBoard.Application.Errors;
+using ScrumBoard.Api.Infrastructure.Idempotency;
 
 namespace ScrumBoard.Api.Infrastructure;
 
-internal sealed class IdempotencyMiddleware(RequestDelegate next)
+internal sealed class IdempotencyMiddleware(RequestDelegate next, ILogger<IdempotencyMiddleware> logger)
 {
     private const string HeaderName = "Idempotency-Key";
+    private static readonly Action<ILogger, Exception?> AbortFailed =
+        LoggerMessage.Define(LogLevel.Error, new EventId(1, "IdempotencyAbortFailed"),
+            "Could not abort an idempotent request cleanly");
 
     public async Task InvokeAsync(
         HttpContext context,
-        ScrumBoardDbContext dbContext,
-        ICurrentUser currentUser,
-        IClock clock)
+        IIdempotencyCoordinator coordinator,
+        PostCommitActionQueue postCommitActions,
+        TimeProvider timeProvider)
     {
-        if (!HttpMethods.IsPost(context.Request.Method) || !currentUser.IsAuthenticated ||
+        var userIdClaim = context.User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+        if (context.GetEndpoint()?.Metadata.GetMetadata<IdempotentAttribute>() is null ||
+            context.User.Identity?.IsAuthenticated is not true ||
+            !Guid.TryParse(userIdClaim, out var userId) ||
             !context.Request.Headers.TryGetValue(HeaderName, out var values))
         {
             await next(context);
             return;
         }
 
-        var key = values.ToString().Trim();
+        if (values.Count != 1) throw new BadHttpRequestException("Exactly one Idempotency-Key header is required.");
+        var key = values[0]?.Trim() ?? string.Empty;
         if (key.Length is 0 or > 100) throw new BadHttpRequestException("Idempotency-Key must contain between 1 and 100 characters.");
         context.Request.EnableBuffering();
-        using var reader = new StreamReader(context.Request.Body, Encoding.UTF8, false, leaveOpen: true);
-        var body = await reader.ReadToEndAsync(context.RequestAborted);
+        await using var requestBody = new MemoryStream();
+        await context.Request.Body.CopyToAsync(requestBody, context.RequestAborted);
         context.Request.Body.Position = 0;
-        var operation = $"{context.Request.Method}:{context.Request.Path}";
-        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(body)));
-        var now = clock.UtcNow;
-        var existing = await dbContext.IdempotencyRecords.SingleOrDefaultAsync(record =>
-            record.UserId == currentUser.UserId && record.Operation == operation && record.Key == key,
+        var operation = CanonicalOperation(context);
+        var hash = RequestHash(context, operation, requestBody.GetBuffer().AsSpan(0, (int)requestBody.Length));
+        var now = timeProvider.GetUtcNow();
+        var reservation = await coordinator.ReserveAsync(userId, operation, key, hash, now, now.AddMinutes(5),
             context.RequestAborted);
-        if (existing is not null && existing.ExpiresAt <= now)
+        if (!CryptographicOperations.FixedTimeEquals(
+                Convert.FromHexString(reservation.RequestHash),
+                Convert.FromHexString(hash)))
         {
-            dbContext.IdempotencyRecords.Remove(existing);
-            await dbContext.SaveChangesAsync(context.RequestAborted);
-            existing = null;
+            throw new ConflictException("idempotency_key_reused", "The idempotency key was already used with another request.");
         }
-        if (existing is not null)
+        if (reservation.State is IdempotencyReservationState.InProgress)
+            throw new ConflictException("request_in_progress", "A request with this idempotency key is still being processed.");
+        if (reservation.State is IdempotencyReservationState.Completed)
         {
-            await ReplayAsync(context, existing, hash);
+            await ReplayAsync(context, reservation.Response!);
             return;
         }
 
-        var record = new IdempotencyRecord(Guid.NewGuid(), currentUser.UserId, operation, key, hash,
-            now, now.AddHours(24));
-        dbContext.IdempotencyRecords.Add(record);
-        try
-        {
-            await dbContext.SaveChangesAsync(context.RequestAborted);
-        }
-        catch (DbUpdateException)
-        {
-            dbContext.Entry(record).State = EntityState.Detached;
-            var concurrent = await dbContext.IdempotencyRecords.AsNoTracking().SingleOrDefaultAsync(item =>
-                item.UserId == currentUser.UserId && item.Operation == operation && item.Key == key,
-                context.RequestAborted);
-            if (concurrent is null) throw;
-            await ReplayAsync(context, concurrent, hash);
-            return;
-        }
         var originalBody = context.Response.Body;
         await using var responseBody = new MemoryStream();
-        context.Response.Body = responseBody;
         try
         {
+            await coordinator.BeginExecutionAsync(context.RequestAborted);
+            postCommitActions.BeginDeferral();
+            context.Response.Body = responseBody;
             await next(context);
             responseBody.Position = 0;
             var response = await new StreamReader(responseBody, Encoding.UTF8, leaveOpen: true).ReadToEndAsync(context.RequestAborted);
             if (context.Response.StatusCode is >= 200 and < 300)
             {
-                record.Complete(context.Response.StatusCode, context.Response.ContentType ?? "application/json", response,
-                    context.Response.Headers.Location.FirstOrDefault(), clock.UtcNow);
+                await coordinator.CompleteAndCommitAsync(
+                    reservation.Id,
+                    new IdempotentResponse(
+                        context.Response.StatusCode,
+                        context.Response.ContentType ?? "application/json",
+                        response,
+                        context.Response.Headers.Location.FirstOrDefault(),
+                        context.Response.Headers.ETag.FirstOrDefault(),
+                        context.Response.Headers["X-Board-ETag"].FirstOrDefault()),
+                    timeProvider.GetUtcNow(),
+                    CancellationToken.None);
+                await postCommitActions.DrainAsync(CancellationToken.None);
             }
             else
             {
-                dbContext.IdempotencyRecords.Remove(record);
+                postCommitActions.Discard();
+                await coordinator.AbortAsync(reservation.Id, CancellationToken.None);
             }
-            await dbContext.SaveChangesAsync(context.RequestAborted);
             responseBody.Position = 0;
             await responseBody.CopyToAsync(originalBody, context.RequestAborted);
         }
         catch
         {
-            dbContext.IdempotencyRecords.Remove(record);
-            await dbContext.SaveChangesAsync(CancellationToken.None);
+            postCommitActions.Discard();
+            try
+            {
+                await coordinator.AbortAsync(reservation.Id, CancellationToken.None);
+            }
+            catch (Exception exception)
+            {
+                AbortFailed(logger, exception);
+            }
             throw;
         }
         finally
@@ -99,16 +107,37 @@ internal sealed class IdempotencyMiddleware(RequestDelegate next)
         }
     }
 
-    private static async Task ReplayAsync(HttpContext context, IdempotencyRecord record, string requestHash)
+    private static string CanonicalOperation(HttpContext context)
     {
-        if (!CryptographicOperations.FixedTimeEquals(Convert.FromHexString(record.RequestHash), Convert.FromHexString(requestHash)))
-            throw new ConflictException("idempotency_key_reused", "The idempotency key was already used with another request.");
-        if (!record.IsCompleted)
-            throw new ConflictException("request_in_progress", "A request with this idempotency key is still being processed.");
-        context.Response.StatusCode = record.StatusCode;
-        context.Response.ContentType = record.ContentType;
-        if (record.Location is not null) context.Response.Headers.Location = record.Location;
+        var route = (context.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText
+            ?? context.Request.Path.Value?.ToLowerInvariant()
+            ?? string.Empty;
+        return $"{context.Request.Method.ToUpperInvariant()}:{route.ToLowerInvariant()}";
+    }
+
+    private static string RequestHash(HttpContext context, string operation, ReadOnlySpan<byte> body)
+    {
+        var query = string.Join('&', context.Request.Query
+            .OrderBy(item => item.Key, StringComparer.Ordinal)
+            .SelectMany(item => item.Value.Order(StringComparer.Ordinal)
+                .Select(value => $"{Uri.EscapeDataString(item.Key)}={Uri.EscapeDataString(value ?? string.Empty)}")));
+        var path = context.Request.Path.Value?.ToLowerInvariant() ?? string.Empty;
+        var metadata = Encoding.UTF8.GetBytes(
+            $"{operation}\n{path}\n{query}\n{context.Request.ContentType?.ToLowerInvariant() ?? string.Empty}\n");
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(metadata);
+        hash.AppendData(body);
+        return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    private static async Task ReplayAsync(HttpContext context, IdempotentResponse response)
+    {
+        context.Response.StatusCode = response.StatusCode;
+        context.Response.ContentType = response.ContentType;
+        if (response.Location is not null) context.Response.Headers.Location = response.Location;
+        if (response.Etag is not null) context.Response.Headers.ETag = response.Etag;
+        if (response.BoardEtag is not null) context.Response.Headers["X-Board-ETag"] = response.BoardEtag;
         context.Response.Headers["Idempotency-Replayed"] = "true";
-        await context.Response.WriteAsync(record.ResponseBody ?? string.Empty, context.RequestAborted);
+        await context.Response.WriteAsync(response.ResponseBody, context.RequestAborted);
     }
 }

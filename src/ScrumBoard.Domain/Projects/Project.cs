@@ -1,9 +1,10 @@
-using ScrumBoard.Domain.Common;
+using ScrumBoard.Domain.Primitives;
 
 namespace ScrumBoard.Domain.Projects;
 
 public sealed class Project
 {
+    private readonly List<ProjectMember> _members = [];
     private Project() { }
 
     public Project(
@@ -25,7 +26,7 @@ public sealed class Project
         Status = status;
         CreatedAt = now;
         UpdatedAt = now;
-        Members.Add(new ProjectMember(id, ownerId, ProjectRole.Owner));
+        _members.Add(new ProjectMember(id, ownerId, ProjectRole.Owner));
     }
 
     public Guid Id { get; private set; }
@@ -38,7 +39,7 @@ public sealed class Project
     public long BoardVersion { get; private set; } = 1;
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
-    public List<ProjectMember> Members { get; } = [];
+    public IReadOnlyCollection<ProjectMember> Members => _members.AsReadOnly();
 
     public void Update(
         string name,
@@ -59,12 +60,12 @@ public sealed class Project
 
     public void AddMember(Guid userId, ProjectRole role, DateTimeOffset now)
     {
-        if (Members.Any(member => member.UserId == userId))
+        if (_members.Any(member => member.UserId == userId))
         {
             throw new DomainException("member_exists", "The user is already a project member.");
         }
 
-        Members.Add(new ProjectMember(Id, userId, role));
+        _members.Add(new ProjectMember(Id, userId, role));
         Touch(now);
     }
 

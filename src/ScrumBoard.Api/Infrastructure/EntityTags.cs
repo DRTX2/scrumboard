@@ -1,6 +1,7 @@
-using ScrumBoard.Application.Common;
-
 namespace ScrumBoard.Api.Infrastructure;
+
+internal sealed class EntityTagRequiredException()
+    : Exception("The If-Match header is required for this operation.");
 
 internal static class EntityTags
 {
@@ -8,7 +9,7 @@ internal static class EntityTags
 
     public static long Require(HttpRequest request)
     {
-        if (!request.Headers.TryGetValue("If-Match", out var values)) throw new PreconditionRequiredException();
+        if (!request.Headers.TryGetValue("If-Match", out var values)) throw new EntityTagRequiredException();
         var value = values.ToString().Trim();
         if (value.StartsWith("W/", StringComparison.OrdinalIgnoreCase)) value = value[2..];
         if (value.Length >= 2 && value[0] == '"' && value[^1] == '"') value = value[1..^1];

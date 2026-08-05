@@ -1,5 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
-using ScrumBoard.Application.Abstractions;
+using ScrumBoard.Application.Context;
 
 namespace ScrumBoard.Api.Infrastructure;
 

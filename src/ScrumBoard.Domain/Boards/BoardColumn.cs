@@ -1,4 +1,4 @@
-using ScrumBoard.Domain.Common;
+using ScrumBoard.Domain.Primitives;
 
 namespace ScrumBoard.Domain.Boards;
 

@@ -1,15 +1,15 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using ScrumBoard.Application.Common;
-using ScrumBoard.Domain.Common;
+using ScrumBoard.Application.Errors;
+using ScrumBoard.Domain.Primitives;
 
 namespace ScrumBoard.Api.Infrastructure;
 
 internal sealed class ApiExceptionHandler(
-    IProblemDetailsService problemDetails,
     ILogger<ApiExceptionHandler> logger) : IExceptionHandler
 {
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly Action<ILogger, string, string, Exception?> RejectedRequest =
         LoggerMessage.Define<string, string>(LogLevel.Information, new EventId(1, "RequestRejected"),
             "Request rejected with {Code} and trace {TraceId}");
@@ -25,10 +25,10 @@ internal sealed class ApiExceptionHandler(
             ForbiddenException appProblem => (StatusCodes.Status403Forbidden, appProblem.Code, "Access denied."),
             NotFoundException appProblem => (StatusCodes.Status404NotFound, appProblem.Code, "Resource not found."),
             ConflictException appProblem => (StatusCodes.Status409Conflict, appProblem.Code, "The request conflicts with current state."),
-            PreconditionFailedException appProblem => (StatusCodes.Status412PreconditionFailed, appProblem.Code, "The resource has changed."),
-            PreconditionRequiredException appProblem => (StatusCodes.Status428PreconditionRequired, appProblem.Code, "A precondition is required."),
+            OptimisticConcurrencyException appProblem => (StatusCodes.Status412PreconditionFailed,
+                appProblem.Code == "version_mismatch" ? "etag_mismatch" : appProblem.Code, "The resource has changed."),
+            EntityTagRequiredException => (StatusCodes.Status428PreconditionRequired, "if_match_required", "A precondition is required."),
             DomainException domainProblem => (StatusCodes.Status422UnprocessableEntity, domainProblem.Code, "Business validation failed."),
-            DbUpdateConcurrencyException => (StatusCodes.Status412PreconditionFailed, "concurrent_update", "The resource has changed."),
             BadHttpRequestException => (StatusCodes.Status400BadRequest, "invalid_request", "The request is invalid."),
             _ => (StatusCodes.Status500InternalServerError, "unexpected_error", "An unexpected error occurred.")
         };
@@ -47,12 +47,9 @@ internal sealed class ApiExceptionHandler(
         };
         details.Extensions["code"] = code;
         details.Extensions["traceId"] = context.TraceIdentifier;
-        return await problemDetails.TryWriteAsync(new ProblemDetailsContext
-        {
-            HttpContext = context,
-            ProblemDetails = details,
-            Exception = exception
-        });
+        context.Response.ContentType = "application/problem+json";
+        await JsonSerializer.SerializeAsync(context.Response.Body, details, JsonOptions, cancellationToken);
+        return true;
     }
 
     private static string TypeFor(int status) => status switch

@@ -13,22 +13,26 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
+using ScrumBoard.Api.Adapters.Outbound.Persistence;
+using ScrumBoard.Api.Adapters.SignalR;
+using ScrumBoard.Api.Configuration;
 using ScrumBoard.Api.Infrastructure;
-using ScrumBoard.Api.Realtime;
-using ScrumBoard.Application;
-using ScrumBoard.Application.Abstractions;
-using ScrumBoard.Infrastructure;
-using ScrumBoard.Infrastructure.Persistence;
-using ScrumBoard.Infrastructure.Security;
+using ScrumBoard.Api.Infrastructure.Idempotency;
+using ScrumBoard.Application.Context;
+using ScrumBoard.Application.Ports.Outbound;
+using ScrumBoard.Infrastructure.Configuration;
+using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddApplication();
+builder.Services.AddApplicationUseCases();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
-builder.Services.AddSingleton<BoardPresence>();
-builder.Services.AddSingleton<IBoardNotifier, SignalRBoardNotifier>();
+builder.Services.AddScoped<IIdempotencyCoordinator, PostgreSqlIdempotencyCoordinator>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddBoardSignalR();
+
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
 {
@@ -52,7 +56,8 @@ builder.Services.Configure<ApiBehaviorOptions>(options =>
     };
 });
 
-var jwt = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
+var jwt = builder.Configuration.GetSection(JwtAuthenticationOptions.SectionName).Get<JwtAuthenticationOptions>()
+    ?? new JwtAuthenticationOptions();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
 {
     options.MapInboundClaims = false;
@@ -101,9 +106,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
     };
 });
 builder.Services.AddAuthorization();
-builder.Services.AddSignalR().AddJsonProtocol(options =>
-    options.PayloadSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)));
-
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
 {

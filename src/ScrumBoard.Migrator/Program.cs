@@ -3,7 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using ScrumBoard.Infrastructure.Persistence;
+using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
