@@ -65,8 +65,10 @@ erDiagram
         char request_hash
         integer status_code
         varchar content_type
-        jsonb response_body
+        text response_body
         varchar location
+        varchar etag
+        varchar board_etag
         timestamptz created_at
         timestamptz expires_at
         timestamptz completed_at
@@ -91,7 +93,7 @@ La última relación es lógica: `idempotency_records.user_id` forma parte del �
 - `version` es token de concurrencia en proyectos, columnas y tareas; `board_version` representa cambios agregados del tablero.
 - El borrado de un proyecto elimina membresías, columnas y tareas; una columna con tareas no puede eliminarse y la FK de tareas es restrictiva.
 - Al eliminar un usuario asignado, `tasks.assignee_id` pasa a `NULL`; las membresías restringen el borrado.
-- La idempotencia tiene unicidad por `(user_id, operation, key)` e índice por `expires_at`.
+- La idempotencia tiene unicidad por `(user_id, key)` e índice por `expires_at`; `operation` y `request_hash` verifican que la clave no se reutilice para otra solicitud.
 
 ## Índices de consulta
 

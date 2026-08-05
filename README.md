@@ -61,9 +61,9 @@ Estas cuentas y la contraseña son exclusivamente para desarrollo. El propietari
 La solución sigue una separación por capas:
 
 - `ScrumBoard.Domain`: entidades, invariantes y ordenamiento.
-- `ScrumBoard.Application`: casos de uso y puertos para persistencia, seguridad, reportes y notificaciones.
-- `ScrumBoard.Infrastructure`: Entity Framework Core/Npgsql, JWT, PBKDF2 y exportadores PDF/XLSX.
-- `ScrumBoard.Api`: controladores HTTP, Problem Details, autenticación, rate limiting, salud y hub SignalR.
+- `ScrumBoard.Application`: modelos neutrales, puertos `Inbound`/`Outbound` y casos de uso, sin dependencias de frameworks o DI.
+- `ScrumBoard.Infrastructure`: adaptadores de salida y configuración de EF Core/Npgsql, JWT, PBKDF2, tiempo y reportes PDF/XLSX.
+- `ScrumBoard.Api`: adaptador de entrada HTTP, adaptador bidireccional SignalR, idempotencia técnica, composition root, Problem Details, autenticación, rate limiting y salud.
 - `ScrumBoard.Migrator`: ejecutable independiente que aplica migraciones antes del arranque.
 - `frontend`: SPA Angular servida por nginx no privilegiado, con configuración de endpoints en tiempo de ejecución.
 
@@ -109,25 +109,27 @@ El cliente debe volver a leer el recurso después de un `412`, reconciliar los c
 
 ## Idempotencia
 
-Los `POST` autenticados aceptan `Idempotency-Key` de 1 a 100 caracteres. La clave se combina con usuario y ruta, y el cuerpo se protege con SHA-256.
+Los `POST` autenticados marcados como idempotentes aceptan `Idempotency-Key` de 1 a 100 caracteres. La clave es única por usuario durante su vigencia. El fingerprint SHA-256 incorpora método, plantilla y valores de ruta, query ordenada, tipo de contenido y bytes del cuerpo.
 
-- Repetir la misma clave y el mismo cuerpo reproduce la respuesta exitosa y añade `Idempotency-Replayed: true`.
-- Reutilizar la clave con otro cuerpo responde `409 Conflict`.
+- Repetir la misma clave y el mismo cuerpo reproduce status, cuerpo, tipo de contenido, `Location`, `ETag` y `X-Board-ETag`, y añade `Idempotency-Replayed: true`.
+- Reutilizar la clave para cualquier solicitud distinta, incluso en otra ruta, responde `409 Conflict`.
 - Una solicitud concurrente aún en proceso también responde `409 Conflict`.
 - Las respuestas no exitosas no se conservan.
-- Cada registro recibe `expires_at` a 24 horas. Los registros vencidos dejan de bloquear la clave; una limpieza periódica en lote figura en el roadmap.
+- Una reserva en proceso tiene un lease de cinco minutos; al completarse, el replay permanece vigente durante 24 horas. Los registros vencidos dejan de bloquear la clave; una limpieza periódica en lote figura en el roadmap.
+- La mutación y la respuesta replay se confirman en una transacción; SignalR se publica después del commit y sus fallos no revierten una operación durable.
 
 En integraciones reales, genere una clave aleatoria por intención de negocio y conserve la misma clave únicamente durante reintentos de esa intención.
+La SPA sigue ese ciclo en los diálogos de creación: genera la clave al iniciar una intención y la conserva mientras el usuario reintenta esa misma operación.
 
 ## Tiempo real
 
-El frontend se conecta a `/hubs/boards` con el JWT y llama `SubscribeToBoard(projectId)`. El servidor valida la membresía antes de agregar la conexión al grupo. Los eventos publicados son `ColumnChanged`, `TaskCreated`, `TaskUpdated`, `TaskMoved`, `TaskDeleted` y `PresenceChanged`.
+El frontend se conecta a `/hubs/boards` con el JWT y llama `SubscribeToBoard(projectId)`. El servidor valida la membresía antes de agregar la conexión al grupo. Application produce notificaciones tipadas y el adaptador SignalR las traduce a `ColumnChanged`, `TaskCreated`, `TaskUpdated`, `TaskMoved`, `TaskDeleted` y `PresenceChanged`.
 
-La presencia se mantiene en memoria, por lo que la topología actual admite una sola réplica de API. Para escalado horizontal se necesita un backplane de SignalR y presencia distribuida, tal como se indica en el roadmap.
+La presencia se mantiene en memoria y por conexión; al desconectarse se limpian todas sus suscripciones. Cada snapshot lleva una versión creciente y el cliente ignora actualizaciones antiguas. La topología actual admite una sola réplica de API. Para escalado horizontal se necesita un backplane de SignalR y presencia distribuida, tal como se indica en el roadmap.
 
 ## Reportes
 
-`GET /api/v1/projects/{projectId}/reports` genera descargas PDF o XLSX. Admite `assigneeId`, `priority` y `search`, aplica control de membresía y construye el nombre de archivo a partir del proyecto. Los exportadores viven detrás de puertos de aplicación para mantener la lógica independiente de las bibliotecas de formato.
+`GET /api/v1/projects/{projectId}/reports` genera descargas PDF o XLSX. Admite `assigneeId`, `priority` y `search`; el caso de uso aplica la membresía antes de consultar datos y un filtro sin coincidencias genera un reporte vacío válido. Los exportadores viven detrás de puertos de aplicación para mantener la lógica independiente de las bibliotecas de formato.
 
 ## Seguridad y secretos
 
@@ -139,8 +141,9 @@ La presencia se mantiene en memoria, por lo que la topología actual admite una 
 - Imágenes de aplicación no privilegiadas, filesystem de API/migrador de solo lectura y `no-new-privileges` en Compose.
 - PostgreSQL no publica su puerto al host en la topología predeterminada.
 
-`.env` está ignorado por Git y `.env.example` solo contiene valores de demo. En producción, inyecte secretos desde el gestor de secretos de la plataforma, use claves aleatorias largas, TLS extremo a extremo, rotación de credenciales y un usuario PostgreSQL con privilegios separados para migración y ejecución. El Compose local sirve HTTP; no representa por sí solo un despliegue público endurecido.
+En producción, inyecte secretos desde el gestor de secretos de la plataforma, use claves aleatorias largas, TLS extremo a extremo, rotación de credenciales y un usuario PostgreSQL con privilegios separados para migración y ejecución. El Compose local sirve HTTP; no representa por sí solo un despliegue público endurecido.
 
+[//]: # (pending)
 ### Riesgo conocido de Angular 17
 
 `npm audit --omit=dev` reporta 10 vulnerabilidades altas en la línea Angular/PrimeNG exigida por el reto. La corrección automática disponible migra a Angular 22 y rompe la restricción de Angular 17, por lo que no se aplicó de forma encubierta. Esta SPA no usa SSR, `HttpTransferCache`, plantillas dinámicas ni HTML proporcionado por usuarios, lo que reduce la exposición de varios avisos, pero no elimina la deuda. CI bloquea nuevas vulnerabilidades críticas y el salto de versión está registrado en el roadmap.
@@ -156,6 +159,15 @@ dotnet test ScrumBoard.sln --configuration Release --no-build --collect:"XPlat C
 ```
 
 Las pruebas de integración usan Testcontainers, por lo que Docker debe estar disponible.
+
+Las migraciones viven con el adaptador PostgreSQL en `src/ScrumBoard.Infrastructure/Adapters/Outbound/Persistence/Migrations` y se aplican mediante `ScrumBoard.Migrator`. La historia incremental actual reemplaza migraciones tempranas del entorno de desarrollo; si conserva un volumen creado por una versión anterior, recréelo antes de iniciar el stack:
+
+```bash
+docker compose down --volumes
+docker compose up --build
+```
+
+La estrategia y el orden de migraciones están documentados en [arquitectura](docs/architecture.md#historia-de-migraciones).
 
 Frontend:
 
