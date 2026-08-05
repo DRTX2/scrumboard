@@ -81,8 +81,15 @@ for deployment_environment in staging production; do
   environment_prefix="scrumboard-${resource_suffix}"
   deployment_branch="develop"
   if [ "$deployment_environment" = "production" ]; then deployment_branch="main"; fi
-  environment_configuration=$(jq -n \
-    '{deployment_branch_policy:{protected_branches:false,custom_branch_policies:true}}')
+  if [ "$deployment_environment" = "production" ]; then
+    reviewer_id=$(gh api user --jq .id)
+    environment_configuration=$(jq -n \
+      --argjson reviewer_id "$reviewer_id" \
+      '{wait_timer:0,prevent_self_review:false,reviewers:[{type:"User",id:$reviewer_id}],deployment_branch_policy:{protected_branches:false,custom_branch_policies:true}}')
+  else
+    environment_configuration=$(jq -n \
+      '{deployment_branch_policy:{protected_branches:false,custom_branch_policies:true}}')
+  fi
   gh api \
     --method PUT \
     "repos/$repository/environments/$deployment_environment" \

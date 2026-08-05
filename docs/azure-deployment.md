@@ -25,7 +25,7 @@ Los paquetes GHCR permanecen privados y se vinculan al repositorio mediante OCI 
 2. CI, CodeQL y Dependency Review deben finalizar correctamente antes del merge.
 3. El push resultante a `develop` activa `Deploy Azure` y despliega `staging` solo después de un CI correcto para el mismo SHA.
 4. La promoción se realiza mediante PR de `develop` hacia `main`; no se reconstruye código distinto para una revisión concreta y todas las imágenes mantienen tags inmutables.
-5. El merge a `main` ejecuta nuevamente los gates y despliega `production` mediante su GitHub Environment y sus secretos aislados.
+5. El merge a `main` ejecuta nuevamente los gates y prepara `production` mediante su GitHub Environment y sus secretos aislados; el rollout requiere aprobación explícita del propietario.
 
 `workflow_dispatch` permite repetir un despliegue, pero valida que `staging` use `develop` y `production` use `main`. Los grupos de concurrencia evitan dos rollouts simultáneos del mismo ambiente.
 
