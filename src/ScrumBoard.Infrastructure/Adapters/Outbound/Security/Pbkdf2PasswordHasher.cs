@@ -8,6 +8,7 @@ namespace ScrumBoard.Infrastructure.Adapters.Outbound.Security;
 public sealed class Pbkdf2PasswordHasher(IOptions<PasswordOptions> options) : IPasswordHasher
 {
     private readonly PasswordOptions _options = options.Value;
+    public string DummyHash => _options.DummyHash;
 
     public bool Verify(string password, string encodedHash)
     {

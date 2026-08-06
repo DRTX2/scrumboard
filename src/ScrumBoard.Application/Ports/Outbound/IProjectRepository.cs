@@ -12,8 +12,7 @@ public interface IProjectRepository
         CancellationToken cancellationToken);
 
     Task<Project?> FindAsync(Guid projectId, CancellationToken cancellationToken);
-    Task<bool> IsMemberAsync(Guid projectId, Guid userId, CancellationToken cancellationToken);
     Task<ProjectDetails?> GetDetailsAsync(Guid projectId, Guid userId, CancellationToken cancellationToken);
     void Add(Project project);
-    void Remove(Project project);
+    Task RemoveAsync(Project project, CancellationToken cancellationToken);
 }

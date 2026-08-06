@@ -18,15 +18,15 @@ public sealed class Project
         DateTimeOffset now)
     {
         EnsureDates(startDate, expectedEndDate);
-        Id = id;
+        Id = Guard.Required(id, nameof(id));
         Name = Guard.Required(name, nameof(name), 160);
         Description = Guard.Optional(description, 2_000);
         StartDate = startDate;
         ExpectedEndDate = expectedEndDate;
-        Status = status;
+        Status = Guard.Defined(status, nameof(status));
         CreatedAt = now;
         UpdatedAt = now;
-        _members.Add(new ProjectMember(id, ownerId, ProjectRole.Owner));
+        _members.Add(new ProjectMember(id, Guard.Required(ownerId, nameof(ownerId)), ProjectRole.Owner));
     }
 
     public Guid Id { get; private set; }
@@ -54,23 +54,24 @@ public sealed class Project
         Description = Guard.Optional(description, 2_000);
         StartDate = startDate;
         ExpectedEndDate = expectedEndDate;
-        Status = status;
-        Touch(now);
+        Status = Guard.Defined(status, nameof(status));
+        TouchBoard(now);
     }
 
     public void AddMember(Guid userId, ProjectRole role, DateTimeOffset now)
     {
         if (_members.Any(member => member.UserId == userId))
         {
-            throw new DomainException("member_exists", "The user is already a project member.");
+            throw new DomainException("member_exists", "El usuario ya pertenece al proyecto.");
         }
 
-        _members.Add(new ProjectMember(Id, userId, role));
+        _members.Add(new ProjectMember(Id, Guard.Required(userId, nameof(userId)), Guard.Defined(role, nameof(role))));
         Touch(now);
     }
 
     public void TouchBoard(DateTimeOffset now)
     {
+        Version++;
         BoardVersion++;
         UpdatedAt = now;
     }
@@ -83,9 +84,14 @@ public sealed class Project
 
     private static void EnsureDates(DateOnly startDate, DateOnly expectedEndDate)
     {
+        if (startDate == default || expectedEndDate == default)
+        {
+            throw new DomainException("project_dates_required", "Las fechas de inicio y fin previstas son obligatorias.");
+        }
+
         if (expectedEndDate < startDate)
         {
-            throw new DomainException("invalid_project_dates", "Expected end date cannot be before start date.");
+            throw new DomainException("invalid_project_dates", "La fecha prevista de fin no puede ser anterior a la fecha de inicio.");
         }
     }
 }

@@ -15,7 +15,7 @@ public sealed class SignalRBoardNotifierTests
         var projectId = Guid.NewGuid();
         var column = new ColumnResult(Guid.NewGuid(), projectId, "Backlog", 1024, 1, 2);
         var task = new TaskResult(Guid.NewGuid(), projectId, column.Id, "Task", null, TaskPriority.High,
-            null, null, 1024, 1, 2, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+            Guid.NewGuid(), null, 1024, 1, 2, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
         BoardNotification[] notifications =
         [
             new ColumnChangedNotification(projectId, column),

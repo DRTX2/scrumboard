@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using ScrumBoard.Application.Ports.Outbound;
 using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence;
 using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence.Repositories;
@@ -11,10 +12,12 @@ internal static class PersistenceServiceCollectionExtensions
 {
     public static IServiceCollection AddPersistenceAdapter(this IServiceCollection services, IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString("Database")
-            ?? throw new InvalidOperationException("ConnectionStrings:Database is required.");
-        services.AddDbContextPool<ScrumBoardDbContext>(options =>
-            options.UseNpgsql(connectionString, npgsql =>
+        services.AddOptions<DatabaseOptions>()
+            .Bind(configuration.GetSection(DatabaseOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<DatabaseOptions>, DatabaseOptionsValidator>();
+        services.AddDbContextPool<ScrumBoardDbContext>((provider, options) =>
+            options.UseNpgsql(provider.GetRequiredService<IOptions<DatabaseOptions>>().Value.Database, npgsql =>
                 npgsql.MigrationsAssembly(typeof(ScrumBoardDbContext).Assembly.FullName)));
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IProjectRepository, ProjectRepository>();

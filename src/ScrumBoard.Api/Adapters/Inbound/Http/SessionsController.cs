@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using ScrumBoard.Api.Adapters.Inbound.Http.Contracts;
 using ScrumBoard.Application.Ports.Inbound.Sessions;
 
 namespace ScrumBoard.Api.Adapters.Inbound.Http;
@@ -12,6 +13,6 @@ public sealed class SessionsController(ISessionUseCase sessions) : ControllerBas
     [HttpPost]
     [ProducesResponseType<SessionResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<SessionResponse>> Create(CreateSession request, CancellationToken cancellationToken) =>
-        Ok(await sessions.CreateAsync(request, cancellationToken));
+    public async Task<ActionResult<SessionResponse>> Create(CreateSessionRequest request, CancellationToken cancellationToken) =>
+        Ok(await sessions.CreateAsync(request.ToCommand(), cancellationToken));
 }

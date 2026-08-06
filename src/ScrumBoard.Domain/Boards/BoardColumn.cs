@@ -8,10 +8,10 @@ public sealed class BoardColumn
 
     public BoardColumn(Guid id, Guid projectId, string name, long position, DateTimeOffset now)
     {
-        Id = id;
-        ProjectId = projectId;
+        Id = Guard.Required(id, nameof(id));
+        ProjectId = Guard.Required(projectId, nameof(projectId));
         Name = Guard.Required(name, nameof(name), 100);
-        Position = position;
+        Position = Guard.Positive(position, nameof(position));
         CreatedAt = now;
         UpdatedAt = now;
     }
@@ -33,7 +33,7 @@ public sealed class BoardColumn
 
     public void MoveTo(long position, DateTimeOffset now)
     {
-        Position = position;
+        Position = Guard.Positive(position, nameof(position));
         Version++;
         UpdatedAt = now;
     }
@@ -42,7 +42,7 @@ public sealed class BoardColumn
     {
         if (containsTasks)
         {
-            throw new DomainException("column_not_empty", "A column containing tasks cannot be deleted.");
+            throw new DomainException("column_not_empty", "No se puede eliminar una columna que contiene tareas.");
         }
     }
 }

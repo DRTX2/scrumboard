@@ -60,5 +60,3 @@ public sealed class BoardHub(
         return new PresenceUser(id, Context.User.FindFirst(JwtRegisteredClaimNames.Name)?.Value ?? "User");
     }
 }
-
-internal sealed record PresenceChangedPayload(IReadOnlyList<PresenceUser> Users, int Count, long Version);

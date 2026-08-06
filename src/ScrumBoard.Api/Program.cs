@@ -5,8 +5,11 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using OpenTelemetry.Metrics;
@@ -22,8 +25,24 @@ using ScrumBoard.Application.Context;
 using ScrumBoard.Application.Ports.Outbound;
 using ScrumBoard.Infrastructure.Configuration;
 using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence;
+using ScrumBoard.Infrastructure.Adapters.Outbound.Security;
 
 var builder = WebApplication.CreateBuilder(args);
+var maintenanceMode = builder.Configuration.GetValue<bool>("MaintenanceMode");
+var forwardedHeadersEnabled = builder.Configuration.GetValue<bool>("ForwardedHeaders:Enabled");
+var maintenanceProblemJsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+
+if (forwardedHeadersEnabled)
+{
+    builder.Services.Configure<ForwardedHeadersOptions>(options =>
+    {
+        options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+        options.ForwardLimit = 1;
+        // Container Apps is the only public path to the container; trust its final ingress hop.
+        options.KnownNetworks.Clear();
+        options.KnownProxies.Clear();
+    });
+}
 
 builder.Services.AddApplicationUseCases();
 builder.Services.AddInfrastructure(builder.Configuration);
@@ -39,95 +58,138 @@ builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = 
     context.ProblemDetails.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
 });
 builder.Services.AddControllers().AddJsonOptions(options =>
-    options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)));
+    options.JsonSerializerOptions.Converters.Add(
+        new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false)));
 builder.Services.Configure<ApiBehaviorOptions>(options =>
 {
     options.InvalidModelStateResponseFactory = context =>
     {
-        var problem = new ValidationProblemDetails(context.ModelState)
+        var errors = context.ModelState
+            .Where(entry => entry.Value?.ValidationState == ModelValidationState.Invalid)
+            .ToDictionary(
+                entry => entry.Key,
+                _ => ApiValidationMessages.InvalidValue);
+        var problem = new ValidationProblemDetails(errors)
         {
             Status = StatusCodes.Status400BadRequest,
-            Title = "Request validation failed.",
+            Title = "La solicitud no es válida.",
             Type = "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.1"
         };
         problem.Extensions["code"] = "invalid_request";
         problem.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
-        return new BadRequestObjectResult(problem);
+        return new ContentResult
+        {
+            StatusCode = StatusCodes.Status400BadRequest,
+            ContentType = "application/problem+json",
+            Content = JsonSerializer.Serialize(problem)
+        };
     };
 });
 
-var jwt = builder.Configuration.GetSection(JwtAuthenticationOptions.SectionName).Get<JwtAuthenticationOptions>()
-    ?? new JwtAuthenticationOptions();
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
-{
-    options.MapInboundClaims = false;
-    options.TokenValidationParameters = new TokenValidationParameters
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+    .Configure<IOptions<JwtOptions>>((options, jwtOptions) =>
     {
-        ValidateIssuer = true,
-        ValidateAudience = true,
-        ValidateLifetime = true,
-        ValidateIssuerSigningKey = true,
-        ValidIssuer = jwt.Issuer,
-        ValidAudience = jwt.Audience,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
-        ClockSkew = TimeSpan.FromSeconds(30),
-        NameClaimType = "name"
-    };
-    options.Events = new JwtBearerEvents
-    {
-        OnMessageReceived = context =>
+        var jwt = jwtOptions.Value;
+        options.MapInboundClaims = false;
+        options.TokenValidationParameters = new TokenValidationParameters
         {
-            var token = context.Request.Query["access_token"];
-            if (!string.IsNullOrEmpty(token) && context.HttpContext.Request.Path.StartsWithSegments("/hubs/boards"))
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwt.Issuer,
+            ValidAudience = jwt.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.SigningKey)),
+            ClockSkew = TimeSpan.FromSeconds(30),
+            NameClaimType = "name"
+        };
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
             {
-                context.Token = token;
+                var token = context.Request.Query["access_token"];
+                // Query strings can be logged, so only accept SignalR's fallback token on the exact hub endpoint.
+                if (!string.IsNullOrEmpty(token) && context.Request.Path == "/hubs/boards")
+                {
+                    context.Token = token;
+                }
+                return Task.CompletedTask;
+            },
+            OnChallenge = async context =>
+            {
+                context.HandleResponse();
+                await AuthenticationProblemResponses.WriteAsync(
+                    context.HttpContext,
+                    StatusCodes.Status401Unauthorized,
+                    "Se requiere autenticación.",
+                    "authentication_required",
+                    "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.2");
+            },
+            OnForbidden = async context =>
+            {
+                await AuthenticationProblemResponses.WriteAsync(
+                    context.HttpContext,
+                    StatusCodes.Status403Forbidden,
+                    "Acceso denegado.",
+                    "access_denied",
+                    "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.4");
             }
-            return Task.CompletedTask;
-        },
-        OnChallenge = async context =>
-        {
-            context.HandleResponse();
-            await AuthenticationProblemResponses.WriteAsync(
-                context.HttpContext,
-                StatusCodes.Status401Unauthorized,
-                "Authentication is required.",
-                "authentication_required",
-                "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.2");
-        },
-        OnForbidden = async context =>
-        {
-            await AuthenticationProblemResponses.WriteAsync(
-                context.HttpContext,
-                StatusCodes.Status403Forbidden,
-                "Access is denied.",
-                "access_denied",
-                "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.4");
-        }
-    };
-});
+        };
+    });
 builder.Services.AddAuthorization();
-var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+var allowedOrigins = (builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [])
+    .Where(origin => !string.IsNullOrWhiteSpace(origin))
+    .ToArray();
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
 {
-    if (allowedOrigins.Length > 0) policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+    if (allowedOrigins.Length == 0)
+    {
+        policy.SetIsOriginAllowed(_ => false);
+        return;
+    }
+
+    policy.WithOrigins(allowedOrigins)
+        .AllowAnyHeader()
+        .AllowAnyMethod()
+        .AllowCredentials()
+        .WithExposedHeaders(
+            "Content-Disposition",
+            "ETag",
+            "X-Board-ETag",
+            "X-Total-Count",
+            "Location",
+            "Idempotency-Replayed");
 }));
 builder.Services.AddRateLimiter(options =>
 {
+    var problemJsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.OnRejected = async (context, cancellationToken) =>
     {
         context.HttpContext.Response.Headers.RetryAfter = "10";
-        await context.HttpContext.Response.WriteAsJsonAsync(new ProblemDetails
+        var problem = new ProblemDetails
         {
             Status = StatusCodes.Status429TooManyRequests,
-            Title = "Too many requests.",
-            Detail = "Retry the request after the interval indicated by Retry-After.",
+            Title = "Demasiadas solicitudes.",
+            Detail = "Reintente la solicitud después del intervalo indicado por Retry-After.",
             Type = "https://www.rfc-editor.org/rfc/rfc6585#section-4"
-        }, cancellationToken);
+        };
+        problem.Extensions["code"] = "rate_limit_exceeded";
+        problem.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
+        context.HttpContext.Response.ContentType = "application/problem+json";
+        await context.HttpContext.Response.WriteAsync(
+            JsonSerializer.Serialize(problem, problemJsonOptions),
+            cancellationToken);
     };
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
-        RateLimitPartition.GetSlidingWindowLimiter(
-            context.User.FindFirst("sub")?.Value ?? context.Connection.RemoteIpAddress?.ToString() ?? "anonymous",
+    {
+        var subject = context.User.FindFirst("sub")?.Value;
+        var partitionKey = string.IsNullOrWhiteSpace(subject)
+            ? $"ip:{context.Connection.RemoteIpAddress?.ToString() ?? "anonymous"}"
+            : $"sub:{subject}";
+        return RateLimitPartition.GetSlidingWindowLimiter(
+            partitionKey,
             _ => new SlidingWindowRateLimiterOptions
             {
                 PermitLimit = 120,
@@ -135,7 +197,8 @@ builder.Services.AddRateLimiter(options =>
                 SegmentsPerWindow = 6,
                 QueueLimit = 0,
                 AutoReplenishment = true
-            }));
+            });
+    });
 });
 
 builder.Services.AddEndpointsApiExplorer();
@@ -167,11 +230,36 @@ builder.Services.AddOpenTelemetry()
 
 var app = builder.Build();
 
+if (forwardedHeadersEnabled) app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseMiddleware<CorrelationIdMiddleware>();
+app.Use(async (context, next) =>
+{
+    if (!maintenanceMode || context.Request.Path == "/health/live" || context.Request.Path == "/health/ready")
+    {
+        await next(context);
+        return;
+    }
+
+    context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+    context.Response.ContentType = "application/problem+json";
+    context.Response.Headers.RetryAfter = "60";
+    var problem = new ProblemDetails
+    {
+        Status = StatusCodes.Status503ServiceUnavailable,
+        Title = "Servicio temporalmente no disponible.",
+        Detail = "El servicio está en mantenimiento. Reintente después del intervalo indicado por Retry-After.",
+        Type = "https://www.rfc-editor.org/rfc/rfc9110#section-15.6.4"
+    };
+    problem.Extensions["code"] = "maintenance_mode";
+    problem.Extensions["traceId"] = context.TraceIdentifier;
+    await context.Response.WriteAsync(
+        JsonSerializer.Serialize(problem, maintenanceProblemJsonOptions),
+        context.RequestAborted);
+});
 app.UseCors();
-app.UseRateLimiter();
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 app.UseMiddleware<IdempotencyMiddleware>();
 app.UseSwagger();

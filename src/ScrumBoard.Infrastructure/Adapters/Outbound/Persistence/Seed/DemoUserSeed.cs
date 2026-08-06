@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using ScrumBoard.Domain.Users;
-using ScrumBoard.Infrastructure.Adapters.Outbound.Security;
 
 namespace ScrumBoard.Infrastructure.Adapters.Outbound.Persistence.Seed;
 
@@ -8,22 +7,13 @@ internal static class DemoUserSeed
 {
     public static void Configure(ModelBuilder modelBuilder)
     {
-        var ownerHash = Pbkdf2PasswordHasher.HashWithSalt(
-            DemoSeedConstants.DemoPassword,
-            DemoSeedConstants.DevelopmentPepper,
-            Convert.FromHexString("100102030405060708090A0B0C0D0E0F"));
-        var memberHash = Pbkdf2PasswordHasher.HashWithSalt(
-            DemoSeedConstants.DemoPassword,
-            DemoSeedConstants.DevelopmentPepper,
-            Convert.FromHexString("200102030405060708090A0B0C0D0E0F"));
-
         modelBuilder.Entity<User>().HasData(
             new
             {
                 Id = DemoSeedConstants.OwnerId,
                 Name = "Demo Owner",
                 Email = "owner@scrumboard.local",
-                PasswordHash = ownerHash,
+                PasswordHash = "pbkdf2-sha512.210000.EAECAwQFBgcICQoLDA0ODw==./lanLqoVjc6fLDiztMJR6F8AdOXAQlpTUuHreEVVtlk=",
                 IsActive = true,
                 DemoSeedConstants.CreatedAt
             },
@@ -32,7 +22,7 @@ internal static class DemoUserSeed
                 Id = DemoSeedConstants.MemberId,
                 Name = "Demo Member",
                 Email = "member@scrumboard.local",
-                PasswordHash = memberHash,
+                PasswordHash = "pbkdf2-sha512.210000.IAECAwQFBgcICQoLDA0ODw==.sXzKpx2ClnU/GVOq9jn9613AU7KMaVn8zJXl5eGLGSw=",
                 IsActive = true,
                 DemoSeedConstants.CreatedAt
             });

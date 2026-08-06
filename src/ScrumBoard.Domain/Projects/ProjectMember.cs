@@ -1,3 +1,5 @@
+using ScrumBoard.Domain.Primitives;
+
 namespace ScrumBoard.Domain.Projects;
 
 public sealed class ProjectMember
@@ -6,9 +8,9 @@ public sealed class ProjectMember
 
     public ProjectMember(Guid projectId, Guid userId, ProjectRole role)
     {
-        ProjectId = projectId;
-        UserId = userId;
-        Role = role;
+        ProjectId = Guard.Required(projectId, nameof(projectId));
+        UserId = Guard.Required(userId, nameof(userId));
+        Role = Guard.Defined(role, nameof(role));
     }
 
     public Guid ProjectId { get; private set; }

@@ -63,7 +63,7 @@ internal static class DemoWorkspaceSeed
             Title = title,
             Description = description,
             Priority = priority,
-            AssigneeId = (Guid?)assigneeId,
+            AssigneeId = assigneeId,
             DueDate = (DateOnly?)null,
             Position = 1_024L,
             Version = 1L,

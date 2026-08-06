@@ -97,7 +97,7 @@ public sealed class DomainInvariantTests
     }
 
     [Fact]
-    public void Project_UpdateAndBoardTouch_AdvanceIndependentVersions()
+    public void Project_UpdateAndBoardTouch_AdvanceRepresentationVersions()
     {
         var project = CreateProject();
         var updateTime = InitialTime.AddMinutes(1);
@@ -109,8 +109,8 @@ public sealed class DomainInvariantTests
 
         Assert.Equal("Renamed", project.Name);
         Assert.Equal("description", project.Description);
-        Assert.Equal(2, project.Version);
-        Assert.Equal(2, project.BoardVersion);
+        Assert.Equal(3, project.Version);
+        Assert.Equal(3, project.BoardVersion);
         Assert.Equal(boardTime, project.UpdatedAt);
     }
 
@@ -195,5 +195,5 @@ public sealed class DomainInvariantTests
 
     private static TaskItem CreateTask() =>
         new(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "Task", "Description", TaskPriority.Medium,
-            null, null, 1024, InitialTime);
+            Guid.NewGuid(), null, 1024, InitialTime);
 }

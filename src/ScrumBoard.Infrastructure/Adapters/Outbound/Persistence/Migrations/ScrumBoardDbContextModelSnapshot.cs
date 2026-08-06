@@ -58,10 +58,18 @@ namespace ScrumBoard.Infrastructure.Adapters.Outbound.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ProjectId", "Position")
+                    b.HasAlternateKey("ProjectId", "Id")
+                        .HasName("AK_board_columns_project_id_id");
+
+                    b.HasIndex("ProjectId", "Position", "Id")
                         .HasDatabaseName("ix_board_columns_project_position");
 
-                    b.ToTable("board_columns", (string)null);
+                    b.ToTable("board_columns", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_board_columns_position", "position > 0");
+
+                            t.HasCheckConstraint("ck_board_columns_version", "version > 0");
+                        });
 
                     b.HasData(
                         new
@@ -157,6 +165,10 @@ namespace ScrumBoard.Infrastructure.Adapters.Outbound.Persistence.Migrations
                     b.ToTable("projects", null, t =>
                         {
                             t.HasCheckConstraint("ck_projects_dates", "expected_end_date >= start_date");
+
+                            t.HasCheckConstraint("ck_projects_status", "status IN ('Planned', 'Active', 'Completed', 'Archived')");
+
+                            t.HasCheckConstraint("ck_projects_versions", "version > 0 AND board_version > 0");
                         });
 
                     b.HasData(
@@ -193,10 +205,13 @@ namespace ScrumBoard.Infrastructure.Adapters.Outbound.Persistence.Migrations
 
                     b.HasKey("ProjectId", "UserId");
 
-                    b.HasIndex("UserId")
+                    b.HasIndex("UserId", "ProjectId")
                         .HasDatabaseName("ix_project_members_user_id");
 
-                    b.ToTable("project_members", (string)null);
+                    b.ToTable("project_members", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_project_members_role", "role IN ('Member', 'Owner')");
+                        });
 
                     b.HasData(
                         new
@@ -220,7 +235,7 @@ namespace ScrumBoard.Infrastructure.Adapters.Outbound.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
-                    b.Property<Guid?>("AssigneeId")
+                    b.Property<Guid>("AssigneeId")
                         .HasColumnType("uuid")
                         .HasColumnName("assignee_id");
 
@@ -272,18 +287,25 @@ namespace ScrumBoard.Infrastructure.Adapters.Outbound.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AssigneeId");
-
-                    b.HasIndex("ColumnId", "Position")
-                        .HasDatabaseName("ix_tasks_column_position");
-
                     b.HasIndex("ProjectId", "AssigneeId")
                         .HasDatabaseName("ix_tasks_project_assignee");
+
+                    b.HasIndex("ProjectId", "ColumnId");
 
                     b.HasIndex("ProjectId", "Priority")
                         .HasDatabaseName("ix_tasks_project_priority");
 
-                    b.ToTable("tasks", (string)null);
+                    b.HasIndex("ColumnId", "Position", "Id")
+                        .HasDatabaseName("ix_tasks_column_position");
+
+                    b.ToTable("tasks", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_tasks_position", "position > 0");
+
+                            t.HasCheckConstraint("ck_tasks_priority", "priority IN ('Low', 'Medium', 'High', 'Critical')");
+
+                            t.HasCheckConstraint("ck_tasks_version", "version > 0");
+                        });
 
                     b.HasData(
                         new
@@ -499,21 +521,23 @@ namespace ScrumBoard.Infrastructure.Adapters.Outbound.Persistence.Migrations
 
             modelBuilder.Entity("ScrumBoard.Domain.Tasks.TaskItem", b =>
                 {
-                    b.HasOne("ScrumBoard.Domain.Users.User", null)
-                        .WithMany()
-                        .HasForeignKey("AssigneeId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("ScrumBoard.Domain.Boards.BoardColumn", null)
-                        .WithMany()
-                        .HasForeignKey("ColumnId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("ScrumBoard.Domain.Projects.Project", null)
                         .WithMany()
                         .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("ScrumBoard.Domain.Projects.ProjectMember", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId", "AssigneeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("ScrumBoard.Domain.Boards.BoardColumn", null)
+                        .WithMany()
+                        .HasForeignKey("ProjectId", "ColumnId")
+                        .HasPrincipalKey("ProjectId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

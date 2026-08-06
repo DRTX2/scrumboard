@@ -81,7 +81,11 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
         return new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseSetting("ConnectionStrings:Database", ConnectionString);
+            builder.UseSetting("Jwt:Issuer", "ScrumBoard.Api");
+            builder.UseSetting("Jwt:Audience", "ScrumBoard.Web");
             builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
+            builder.UseSetting("Jwt:LifetimeMinutes", "30");
+            builder.UseSetting("Password:Pepper", "integration-test-pepper-with-32-characters");
         });
     }
 
