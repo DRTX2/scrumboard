@@ -18,10 +18,11 @@ on:
         default: develop
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
-  group: deploy-azure-${{ github.event.workflow_run.head_branch || inputs.environment }}
+  group: deploy-azure-${{ inputs.environment || (github.event.workflow_run.head_branch == 'main' && 'production' || 'staging') }}
   cancel-in-progress: false
 
 jobs:
@@ -70,6 +71,24 @@ jobs:
           echo "environment=$DEPLOYMENT_ENVIRONMENT" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Verify successful CI for manual deployment
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          DEPLOY_SHA: ${{ steps.metadata.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          runs=$(gh api --method GET \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+            -f head_sha="$DEPLOY_SHA" \
+            -f status=completed \
+            -f per_page=100)
+          if ! jq -e --arg sha "$DEPLOY_SHA" \
+            'any(.workflow_runs[]; .head_sha == $sha and .status == "completed" and .conclusion == "success")' \
+            <<< "$runs" > /dev/null; then
+            echo "No successful completed CI workflow exists for $DEPLOY_SHA."
+            exit 1
+          fi
+
   images:
     name: Build, scan and publish ${{ matrix.name }}
     needs: prepare
@@ -113,21 +132,28 @@ jobs:
           echo "name=ghcr.io/$owner/$IMAGE_NAME" >> "$GITHUB_OUTPUT"
           echo "ref=ghcr.io/$owner/$IMAGE_NAME:$IMAGE_TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Build image for security scan
+      - name: Authenticate to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_PUSH_TOKEN }}
+
+      - name: Build and push immutable image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          load: true
-          push: false
+          push: true
           tags: ${{ steps.image.outputs.ref }}
           cache-from: type=gha,scope=azure-${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=azure-${{ matrix.name }}
 
-      - name: Scan image
+      - name: Scan published image
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ steps.image.outputs.ref }}
+          image-ref: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
           format: table
           exit-code: "1"
           ignore-unfixed: true
@@ -136,7 +162,7 @@ jobs:
       - name: Generate CycloneDX SBOM
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ steps.image.outputs.ref }}
+          image-ref: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
           format: cyclonedx
           output: sbom-${{ matrix.name }}.cdx.json
           exit-code: "0"
@@ -148,38 +174,39 @@ jobs:
           path: sbom-${{ matrix.name }}.cdx.json
           retention-days: 90
 
-      - name: Authenticate to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_PUSH_TOKEN }}
-
-      - name: Push immutable image
-        id: push
+      - name: Export digest reference
         env:
-          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          COMPONENT: ${{ matrix.name }}
         run: |
-          docker push "$IMAGE_REF"
-          digest=$(docker inspect --format='{{ index .RepoDigests 0 }}' "$IMAGE_REF")
-          echo "digest=${digest#*@}" >> "$GITHUB_OUTPUT"
+          printf '%s@%s\n' "$IMAGE_NAME" "$IMAGE_DIGEST" > "$COMPONENT.txt"
+
+      - name: Upload digest reference
+        uses: actions/upload-artifact@v7
+        with:
+          name: image-reference-${{ needs.prepare.outputs.environment }}-${{ matrix.name }}
+          path: ${{ matrix.name }}.txt
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v3
         with:
           subject-name: ${{ steps.image.outputs.name }}
-          subject-digest: ${{ steps.push.outputs.digest }}
+          subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
   deploy:
     name: Deploy ${{ needs.prepare.outputs.environment }}
     needs: [prepare, images]
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 55
     environment:
       name: ${{ needs.prepare.outputs.environment }}
       url: ${{ steps.urls.outputs.frontend_url }}
     permissions:
+      actions: read
       contents: read
       id-token: write
     env:
@@ -196,6 +223,35 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Download image digest references
+        uses: actions/download-artifact@v7
+        with:
+          pattern: image-reference-${{ needs.prepare.outputs.environment }}-*
+          path: artifacts/image-references
+          merge-multiple: true
+
+      - name: Validate image digest references
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          read_image() {
+            component="$1"
+            repository="$2"
+            variable="$3"
+            file="artifacts/image-references/$component.txt"
+            test -f "$file"
+            IFS= read -r reference < "$file"
+            prefix="ghcr.io/$owner/$repository@sha256:"
+            digest="${reference#"$prefix"}"
+            if [ "$digest" = "$reference" ] || [[ ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "Invalid $component image reference: $reference"
+              exit 1
+            fi
+            echo "$variable=$reference" >> "$GITHUB_ENV"
+          }
+          read_image api scrumboard-api API_IMAGE
+          read_image migrator scrumboard-migrator MIGRATION_IMAGE
+          read_image web scrumboard-web FRONTEND_IMAGE
 
       - name: Authenticate to Azure with OIDC
         uses: azure/login@v2
@@ -226,7 +282,6 @@ jobs:
           BOOTSTRAP_ADMIN_PASSWORD: ${{ secrets.BOOTSTRAP_ADMIN_PASSWORD }}
           GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
         run: |
-          owner="${GITHUB_REPOSITORY_OWNER,,}"
           az deployment group create \
             --name "migration-job-$IMAGE_TAG" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -235,7 +290,7 @@ jobs:
             --parameters location="$AZURE_APP_LOCATION" \
             --parameters containerEnvironmentName="$AZURE_CONTAINER_ENV_NAME" \
             --parameters containerEnvironmentResourceGroup="$AZURE_CONTAINER_ENV_RESOURCE_GROUP" \
-            --parameters migrationImage="ghcr.io/$owner/scrumboard-migrator:$IMAGE_TAG" \
+            --parameters migrationImage="$MIGRATION_IMAGE" \
             --parameters registryUsername="$GHCR_USERNAME" \
             --parameters registryPassword="$GHCR_READ_TOKEN" \
             --parameters databaseConnectionString="$DATABASE_CONNECTION_STRING" \
@@ -245,6 +300,66 @@ jobs:
             --parameters bootstrapAdminPassword="$BOOTSTRAP_ADMIN_PASSWORD" \
             --parameters removeDemoWorkspace="$REMOVE_DEMO_WORKSPACE" \
             --output none
+
+      - name: Deploy maintenance revision
+        env:
+          DATABASE_CONNECTION_STRING: ${{ secrets.DATABASE_CONNECTION_STRING }}
+          JWT_SIGNING_KEY: ${{ secrets.JWT_SIGNING_KEY }}
+          PASSWORD_PEPPER: ${{ secrets.PASSWORD_PEPPER }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          az deployment group create \
+            --name "applications-maintenance-$IMAGE_TAG" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --template-file deploy/azure/apps.bicep \
+            --parameters environmentName="$AZURE_ENVIRONMENT_NAME" \
+            --parameters location="$AZURE_APP_LOCATION" \
+            --parameters containerEnvironmentName="$AZURE_CONTAINER_ENV_NAME" \
+            --parameters containerEnvironmentResourceGroup="$AZURE_CONTAINER_ENV_RESOURCE_GROUP" \
+            --parameters apiImage="$API_IMAGE" \
+            --parameters frontendImage="$FRONTEND_IMAGE" \
+            --parameters registryUsername="$GHCR_USERNAME" \
+            --parameters registryPassword="$GHCR_READ_TOKEN" \
+            --parameters databaseConnectionString="$DATABASE_CONNECTION_STRING" \
+            --parameters jwtSigningKey="$JWT_SIGNING_KEY" \
+            --parameters passwordPepper="$PASSWORD_PEPPER" \
+            --parameters maintenanceMode=true \
+            --parameters minReplicas="$MIN_REPLICAS" \
+            --parameters maxReplicas=1 \
+            --output none
+
+      - name: Wait for maintenance revision to be exclusively active
+        run: |
+          app="$AZURE_ENVIRONMENT_NAME-api"
+          for attempt in $(seq 1 60); do
+            latest=$(az containerapp show --resource-group "$AZURE_RESOURCE_GROUP" --name "$app" --query properties.latestRevisionName --output tsv)
+            ready=$(az containerapp show --resource-group "$AZURE_RESOURCE_GROUP" --name "$app" --query properties.latestReadyRevisionName --output tsv)
+            mapfile -t active < <(az containerapp revision list \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --name "$app" \
+              --query "[?properties.active].name" \
+              --output tsv)
+            if [ -n "$latest" ] && [ "$latest" = "$ready" ] && [ "${#active[@]}" -eq 1 ] && [ "${active[0]}" = "$latest" ]; then
+              echo "$app maintenance revision exclusively active: $ready"
+              exit 0
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              echo "$app did not exclusively activate revision $latest. Last ready revision: $ready; active: ${active[*]}"
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Verify maintenance response and health
+        run: |
+          api_fqdn=$(az containerapp show --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_ENVIRONMENT_NAME-api" --query properties.configuration.ingress.fqdn --output tsv)
+          api_url="https://$api_fqdn"
+          curl --fail --silent --show-error "$api_url/health/live" > /dev/null
+          curl --fail --silent --show-error "$api_url/health/ready" > /dev/null
+          status=$(curl --silent --show-error --output /tmp/maintenance.json --write-out '%{http_code}' "$api_url/api/v1/projects")
+          test "$status" = "503"
+          jq -e '.status == 503 and .code == "maintenance_mode"' /tmp/maintenance.json > /dev/null
+          rm -f /tmp/maintenance.json
 
       - name: Run migrations and bootstrap seed
         run: |
@@ -269,51 +384,60 @@ jobs:
             sleep 10
           done
 
-          echo "Migration execution timed out."
+          echo "Migration execution timed out; the API remains in maintenance mode."
           exit 1
 
-      - name: Deploy application revisions
+      - name: Deploy normal application revision
         env:
           DATABASE_CONNECTION_STRING: ${{ secrets.DATABASE_CONNECTION_STRING }}
           JWT_SIGNING_KEY: ${{ secrets.JWT_SIGNING_KEY }}
           PASSWORD_PEPPER: ${{ secrets.PASSWORD_PEPPER }}
           GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
         run: |
-          owner="${GITHUB_REPOSITORY_OWNER,,}"
           az deployment group create \
-            --name "applications-$IMAGE_TAG" \
+            --name "applications-active-$IMAGE_TAG" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --template-file deploy/azure/apps.bicep \
             --parameters environmentName="$AZURE_ENVIRONMENT_NAME" \
             --parameters location="$AZURE_APP_LOCATION" \
             --parameters containerEnvironmentName="$AZURE_CONTAINER_ENV_NAME" \
             --parameters containerEnvironmentResourceGroup="$AZURE_CONTAINER_ENV_RESOURCE_GROUP" \
-            --parameters apiImage="ghcr.io/$owner/scrumboard-api:$IMAGE_TAG" \
-            --parameters frontendImage="ghcr.io/$owner/scrumboard-web:$IMAGE_TAG" \
+            --parameters apiImage="$API_IMAGE" \
+            --parameters frontendImage="$FRONTEND_IMAGE" \
             --parameters registryUsername="$GHCR_USERNAME" \
             --parameters registryPassword="$GHCR_READ_TOKEN" \
             --parameters databaseConnectionString="$DATABASE_CONNECTION_STRING" \
             --parameters jwtSigningKey="$JWT_SIGNING_KEY" \
             --parameters passwordPepper="$PASSWORD_PEPPER" \
+            --parameters maintenanceMode=false \
             --parameters minReplicas="$MIN_REPLICAS" \
+            --parameters maxReplicas=1 \
             --output none
 
-      - name: Wait for latest revisions
+      - name: Wait for normal revisions to be exclusively active
         run: |
           for app in "$AZURE_ENVIRONMENT_NAME-api" "$AZURE_ENVIRONMENT_NAME-web"; do
+            activated=false
             for attempt in $(seq 1 60); do
               latest=$(az containerapp show --resource-group "$AZURE_RESOURCE_GROUP" --name "$app" --query properties.latestRevisionName --output tsv)
               ready=$(az containerapp show --resource-group "$AZURE_RESOURCE_GROUP" --name "$app" --query properties.latestReadyRevisionName --output tsv)
-              if [ -n "$latest" ] && [ "$latest" = "$ready" ]; then
-                echo "$app revision ready: $ready"
+              mapfile -t active < <(az containerapp revision list \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --name "$app" \
+                --query "[?properties.active].name" \
+                --output tsv)
+              if [ -n "$latest" ] && [ "$latest" = "$ready" ] && [ "${#active[@]}" -eq 1 ] && [ "${active[0]}" = "$latest" ]; then
+                echo "$app revision exclusively active: $ready"
+                activated=true
                 break
               fi
               if [ "$attempt" -eq 60 ]; then
-                echo "$app did not activate revision $latest. Last ready revision: $ready"
+                echo "$app did not exclusively activate revision $latest. Last ready revision: $ready; active: ${active[*]}"
                 exit 1
               fi
               sleep 10
             done
+            test "$activated" = "true"
           done
 
       - name: Resolve public URLs

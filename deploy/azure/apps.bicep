@@ -38,6 +38,9 @@ param jwtSigningKey string
 @description('Environment-specific password pepper.')
 param passwordPepper string
 
+@description('Return HTTP 503 for functional endpoints while keeping health probes available.')
+param maintenanceMode bool = false
+
 @minValue(0)
 @maxValue(5)
 @description('Minimum replicas per application.')
@@ -142,8 +145,20 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
               value: '210000'
             }
             {
+              name: 'MaintenanceMode'
+              value: string(maintenanceMode)
+            }
+            {
+              name: 'ForwardedHeaders__Enabled'
+              value: 'true'
+            }
+            {
               name: 'Cors__AllowedOrigins__0'
               value: frontendUrl
+            }
+            {
+              name: 'Cors__AllowedOrigins__1'
+              value: ' '
             }
           ]
           probes: [
