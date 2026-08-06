@@ -1,27 +1,36 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Data.Common;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Npgsql;
 using ScrumBoard.Api.Adapters.Outbound.Persistence;
+using ScrumBoard.Api.Infrastructure;
 using ScrumBoard.Api.Infrastructure.Idempotency;
 using ScrumBoard.Application.Models.Projects;
 using ScrumBoard.Application.Models.Tasks;
 using ScrumBoard.Application.Ports.Inbound.Boards;
 using ScrumBoard.Application.Ports.Inbound.Projects;
 using ScrumBoard.Application.Ports.Outbound;
+using ScrumBoard.Application.UseCases.Reports;
+using ScrumBoard.Domain.Boards;
 using ScrumBoard.Domain.Projects;
 using ScrumBoard.Domain.Tasks;
 using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence;
 using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence.Models;
+using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence.Repositories;
 using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence.Seed;
 using ScrumBoard.Infrastructure.Adapters.Outbound.Security;
 
@@ -41,7 +50,8 @@ public sealed class PostgreSqlPersistenceTests(PostgreSqlFixture database)
         "SeedDemoWorkspace",
         "AddSearchIndexes",
         "AddIdempotencyReplayHeaders",
-        "HardenIdempotencyRecords"
+        "HardenIdempotencyRecords",
+        "RequireTaskAssigneeAndAddChecks"
     ];
     private static readonly string[] ExpectedSearchIndexes =
     [
@@ -51,6 +61,7 @@ public sealed class PostgreSqlPersistenceTests(PostgreSqlFixture database)
     ];
     private static readonly Guid DemoOwnerId = Guid.Parse("10000000-0000-0000-0000-000000000001");
     private static readonly Guid DemoProjectId = Guid.Parse("20000000-0000-0000-0000-000000000001");
+    private static readonly JsonSerializerOptions ApiJsonOptions = CreateApiJsonOptions();
 
     [DockerFact]
     public async Task Migrations_ApplyCompletelyAndSeedExpectedWorkspace()
@@ -122,7 +133,7 @@ public sealed class PostgreSqlPersistenceTests(PostgreSqlFixture database)
         }
         finally
         {
-            await migrator.MigrateAsync("20260805042120_HardenIdempotencyRecords");
+            await migrator.MigrateAsync("20260806021724_RequireTaskAssigneeAndAddChecks");
             await dbContext.IdempotencyRecords.Where(item => item.Id == record.Id).ExecuteDeleteAsync();
         }
     }
@@ -189,7 +200,7 @@ public sealed class PostgreSqlPersistenceTests(PostgreSqlFixture database)
         var repository = scope.ServiceProvider.GetRequiredService<IBoardRepository>();
 
         var snapshot = await repository.GetSnapshotAsync(DemoProjectId, DemoOwnerId,
-            new TaskFilter(Priority: TaskPriority.Critical, Search: "COLLABORATIVE"), default);
+            new TaskFilter(Priority: TaskPriority.Critical, Search: "COLLABORATIVE"), 20, default);
 
         Assert.NotNull(snapshot);
         Assert.Equal(ExpectedColumnNames, snapshot.Columns.Select(column => column.Name));
@@ -198,22 +209,314 @@ public sealed class PostgreSqlPersistenceTests(PostgreSqlFixture database)
         Assert.Equal("Demo Member", task.AssigneeName);
         Assert.Empty(snapshot.Columns[0].Tasks);
         Assert.Empty(snapshot.Columns[2].Tasks);
+        Assert.Equal(0, snapshot.Columns[0].TaskTotal);
+        Assert.Equal(1, snapshot.Columns[1].TaskTotal);
+        Assert.False(snapshot.Columns[1].HasMoreTasks);
     }
 
     [DockerFact]
-    public async Task ReportDataSource_WithNoMatchingTasks_ReturnsProjectWithEmptyTaskList()
+    public async Task BoardRepository_UsesBoundedKeysetPagesWithIdenticalFilters()
     {
         database.EnsureAvailable();
+        var marker = $"page-marker-{Guid.NewGuid():N}";
+        var columnId = Guid.Parse("30000000-0000-0000-0000-000000000001");
+        var now = DateTimeOffset.UtcNow;
+        var addedTasks = new[]
+        {
+            new TaskItem(Guid.NewGuid(), DemoProjectId, columnId, $"{marker}-one", null,
+                TaskPriority.High, DemoOwnerId, null, 2_048, now),
+            new TaskItem(Guid.NewGuid(), DemoProjectId, columnId, $"{marker}-two", null,
+                TaskPriority.High, DemoOwnerId, null, 2_048, now),
+            new TaskItem(Guid.NewGuid(), DemoProjectId, columnId, $"{marker}-three", null,
+                TaskPriority.High, DemoOwnerId, null, 3_072, now)
+        };
         await using var provider = database.BuildServices();
         await using var scope = provider.CreateAsyncScope();
-        var dataSource = scope.ServiceProvider.GetRequiredService<IReportDataSource>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ScrumBoardDbContext>();
+        dbContext.Tasks.AddRange(addedTasks);
+        await dbContext.SaveChangesAsync();
 
-        var report = await dataSource.GetAsync(DemoProjectId, new TaskFilter(Search: "does-not-exist"),
-            DateTimeOffset.UtcNow, default);
+        try
+        {
+            var repository = scope.ServiceProvider.GetRequiredService<IBoardRepository>();
+            var filter = new TaskFilter(Priority: TaskPriority.High, Search: marker);
+            var board = await repository.GetSnapshotAsync(DemoProjectId, DemoOwnerId, filter, 2, default);
+            Assert.NotNull(board);
+            var backlog = board.Columns.Single(column => column.Id == columnId);
+            var boardTaskIds = backlog.Tasks.Select(task => task.Id).ToArray();
+
+            var firstPage = await repository.GetTaskPageAsync(
+                DemoProjectId, columnId, DemoOwnerId, filter, 2, null, null, board.BoardVersion, default);
+            Assert.NotNull(firstPage);
+            Assert.NotNull(firstPage.Page);
+            var cursor = firstPage.Page.Items[^1];
+            var secondPage = await repository.GetTaskPageAsync(
+                DemoProjectId, columnId, DemoOwnerId, filter, 2, cursor.Position, cursor.Id, board.BoardVersion, default);
+            Assert.NotNull(secondPage);
+            Assert.NotNull(secondPage.Page);
+            var allPageIds = firstPage.Page.Items.Concat(secondPage.Page.Items).Select(task => task.Id).ToArray();
+
+            Assert.Equal(3, backlog.TaskTotal);
+            Assert.True(backlog.HasMoreTasks);
+            Assert.Equal(2, boardTaskIds.Length);
+            Assert.All(board.Columns.Where(column => column.Id != columnId), column =>
+            {
+                Assert.Empty(column.Tasks);
+                Assert.Equal(0, column.TaskTotal);
+                Assert.False(column.HasMoreTasks);
+            });
+            Assert.Equal(boardTaskIds, firstPage.Page.Items.Select(task => task.Id));
+            Assert.Equal(3, firstPage.Page.Total);
+            Assert.True(firstPage.Page.HasMore);
+            Assert.Single(secondPage.Page.Items);
+            Assert.Equal(3, secondPage.Page.Total);
+            Assert.False(secondPage.Page.HasMore);
+            Assert.Equal(board.BoardVersion, firstPage.Page.BoardVersion);
+            Assert.Equal(3, allPageIds.Length);
+            Assert.Equal(3, allPageIds.Distinct().Count());
+            Assert.Equal(addedTasks.Select(task => task.Id).Order(), allPageIds.Order());
+        }
+        finally
+        {
+            await dbContext.Tasks.Where(task => addedTasks.Select(item => item.Id).Contains(task.Id)).ExecuteDeleteAsync();
+        }
+    }
+
+    [DockerFact]
+    public async Task BoardRepository_SnapshotCommandCountIsConstantAsColumnsGrow()
+    {
+        database.EnsureAvailable();
+        var marker = $"snapshot-scale-{Guid.NewGuid():N}";
+        var now = DateTimeOffset.UtcNow;
+        var columns = Enumerable.Range(1, 12)
+            .Select(index => new BoardColumn(Guid.NewGuid(), DemoProjectId, $"Scale {index}", 10_000 + index * 1024, now))
+            .ToArray();
+        var tasks = columns.SelectMany(column => Enumerable.Range(1, 5)
+            .Select(index => new TaskItem(Guid.NewGuid(), DemoProjectId, column.Id, $"{marker}-{index}", null,
+                TaskPriority.Medium, DemoOwnerId, null, index * 1024, now)))
+            .ToArray();
+        var interceptor = new CountingCommandInterceptor();
+        var options = new DbContextOptionsBuilder<ScrumBoardDbContext>()
+            .UseNpgsql(database.ConnectionString)
+            .AddInterceptors(interceptor)
+            .Options;
+        await using var dbContext = new ScrumBoardDbContext(options);
+        var repository = new BoardRepository(dbContext);
+
+        var baseline = await repository.GetSnapshotAsync(
+            DemoProjectId, DemoOwnerId, new TaskFilter(Search: marker), 2, default);
+        var baselineCommands = interceptor.ReaderCommandCount;
+        dbContext.Columns.AddRange(columns);
+        dbContext.Tasks.AddRange(tasks);
+        await dbContext.SaveChangesAsync();
+        var scaledStart = interceptor.ReaderCommandCount;
+
+        try
+        {
+            var scaled = await repository.GetSnapshotAsync(
+                DemoProjectId, DemoOwnerId, new TaskFilter(Search: marker), 2, default);
+
+            Assert.NotNull(baseline);
+            Assert.Equal(3, baselineCommands);
+            Assert.NotNull(scaled);
+            Assert.Equal(3, interceptor.ReaderCommandCount - scaledStart);
+            var scaledColumns = scaled.Columns.Where(column => columns.Any(added => added.Id == column.Id)).ToArray();
+            Assert.Equal(columns.Length, scaledColumns.Length);
+            Assert.All(scaledColumns, column =>
+            {
+                Assert.Equal(5, column.TaskTotal);
+                Assert.Equal(2, column.Tasks.Count);
+                Assert.True(column.HasMoreTasks);
+                Assert.Equal(column.Tasks.OrderBy(task => task.Position).ThenBy(task => task.Id), column.Tasks);
+            });
+        }
+        finally
+        {
+            await dbContext.Tasks.Where(task => tasks.Select(item => item.Id).Contains(task.Id)).ExecuteDeleteAsync();
+            await dbContext.Columns.Where(column => columns.Select(item => item.Id).Contains(column.Id)).ExecuteDeleteAsync();
+        }
+    }
+
+    [DockerFact]
+    public async Task BoardRepository_StaleTaskPageStopsAfterAuthorizedVersionQuery()
+    {
+        database.EnsureAvailable();
+        var interceptor = new CountingCommandInterceptor();
+        var options = new DbContextOptionsBuilder<ScrumBoardDbContext>()
+            .UseNpgsql(database.ConnectionString)
+            .AddInterceptors(interceptor)
+            .Options;
+        await using var dbContext = new ScrumBoardDbContext(options);
+        var repository = new BoardRepository(dbContext);
+
+        var exception = await Assert.ThrowsAsync<ScrumBoard.Application.Errors.OptimisticConcurrencyException>(() =>
+            repository.GetTaskPageAsync(DemoProjectId,
+                Guid.Parse("30000000-0000-0000-0000-000000000001"), DemoOwnerId,
+                new TaskFilter(), 20, null, null, long.MaxValue, default));
+
+        Assert.Equal("version_mismatch", exception.Code);
+        Assert.Equal(1, interceptor.ReaderCommandCount);
+    }
+
+    [DockerFact]
+    public async Task BoardRepository_AppendPositionUsesScalarMaxQuery()
+    {
+        database.EnsureAvailable();
+        var interceptor = new CountingCommandInterceptor();
+        var options = new DbContextOptionsBuilder<ScrumBoardDbContext>()
+            .UseNpgsql(database.ConnectionString)
+            .AddInterceptors(interceptor)
+            .Options;
+        await using var dbContext = new ScrumBoardDbContext(options);
+        var repository = new BoardRepository(dbContext);
+
+        var max = await repository.GetMaxTaskPositionAsync(DemoProjectId,
+            Guid.Parse("30000000-0000-0000-0000-000000000001"), null, default);
+
+        Assert.NotNull(max);
+        Assert.Equal(1, interceptor.ReaderCommandCount);
+        Assert.Contains("max(", interceptor.LastReaderCommandText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [DockerFact]
+    public async Task Database_RejectsTaskWhoseColumnBelongsToAnotherProjectAndHasOrderingIndexes()
+    {
+        database.EnsureAvailable();
+        var project = new Project(Guid.NewGuid(), "Integrity project", null, new DateOnly(2026, 8, 5),
+            new DateOnly(2026, 8, 20), ProjectStatus.Active, DemoOwnerId, DateTimeOffset.UtcNow);
+        await using var provider = database.BuildServices();
+        await using var scope = provider.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ScrumBoardDbContext>();
+        dbContext.Projects.Add(project);
+        await dbContext.SaveChangesAsync();
+        var taskId = Guid.NewGuid();
+
+        try
+        {
+            var exception = await Assert.ThrowsAsync<PostgresException>(() => dbContext.Database.ExecuteSqlInterpolatedAsync($"""
+                INSERT INTO tasks
+                    (id, project_id, column_id, title, description, priority, assignee_id, due_date,
+                     position, version, created_at, updated_at)
+                VALUES
+                    ({taskId}, {project.Id}, {Guid.Parse("30000000-0000-0000-0000-000000000001")},
+                     'Cross-project task', NULL, 'Low', {DemoOwnerId}, NULL, 1024, 1, NOW(), NOW())
+                """));
+            var indexColumns = await dbContext.Database.SqlQueryRaw<string>(
+                """
+                SELECT index_class.relname || ':' || string_agg(attribute.attname, ',' ORDER BY key.ordinality) AS "Value"
+                FROM pg_index AS index
+                JOIN pg_class AS table_class ON table_class.oid = index.indrelid
+                JOIN pg_class AS index_class ON index_class.oid = index.indexrelid
+                CROSS JOIN LATERAL unnest(index.indkey) WITH ORDINALITY AS key(attnum, ordinality)
+                JOIN pg_attribute AS attribute
+                  ON attribute.attrelid = table_class.oid AND attribute.attnum = key.attnum
+                WHERE index_class.relname IN ('ix_board_columns_project_position', 'ix_tasks_column_position')
+                GROUP BY index_class.relname
+                """).ToArrayAsync();
+
+            Assert.Equal(PostgresErrorCodes.ForeignKeyViolation, exception.SqlState);
+            Assert.Equal("FK_tasks_board_columns_project_id_column_id", exception.ConstraintName);
+            Assert.Contains("ix_board_columns_project_position:project_id,position,id", indexColumns);
+            Assert.Contains("ix_tasks_column_position:column_id,position,id", indexColumns);
+        }
+        finally
+        {
+            await dbContext.Projects.Where(item => item.Id == project.Id).ExecuteDeleteAsync();
+        }
+    }
+
+    [DockerFact]
+    public async Task ProjectRepository_DeletesProjectWithAssignedTasks()
+    {
+        database.EnsureAvailable();
+        var now = DateTimeOffset.UtcNow;
+        var project = new Project(Guid.NewGuid(), "Delete project", null, new DateOnly(2026, 8, 5),
+            new DateOnly(2026, 8, 20), ProjectStatus.Active, DemoOwnerId, now);
+        var column = new BoardColumn(Guid.NewGuid(), project.Id, "Backlog", 1024, now);
+        var task = new TaskItem(Guid.NewGuid(), project.Id, column.Id, "Assigned task", null,
+            TaskPriority.High, DemoOwnerId, null, 1024, now);
+        await using var provider = database.BuildServices();
+        await using var scope = provider.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ScrumBoardDbContext>();
+        dbContext.AddRange(project, column, task);
+        await dbContext.SaveChangesAsync();
+        var repository = scope.ServiceProvider.GetRequiredService<IProjectRepository>();
+        var loaded = await repository.FindAsync(project.Id, default);
+
+        Assert.NotNull(loaded);
+        await repository.RemoveAsync(loaded, default);
+        await ((IUnitOfWork)dbContext).SaveChangesAsync(default);
+
+        Assert.False(await dbContext.Projects.AnyAsync(item => item.Id == project.Id));
+        Assert.False(await dbContext.Tasks.AnyAsync(item => item.Id == task.Id));
+    }
+
+    [DockerFact]
+    public async Task UnitOfWork_TranslatesColumnDeleteForeignKeyRaceToConflict()
+    {
+        database.EnsureAvailable();
+        var now = DateTimeOffset.UtcNow;
+        var project = new Project(Guid.NewGuid(), "Column race", null, new DateOnly(2026, 8, 5),
+            new DateOnly(2026, 8, 20), ProjectStatus.Active, DemoOwnerId, now);
+        var column = new BoardColumn(Guid.NewGuid(), project.Id, "Backlog", 1024, now);
+        await using var firstContext = new ScrumBoardDbContext(
+            new DbContextOptionsBuilder<ScrumBoardDbContext>().UseNpgsql(database.ConnectionString).Options);
+        firstContext.AddRange(project, column);
+        await firstContext.SaveChangesAsync();
+
+        try
+        {
+            var deletingColumn = await firstContext.Columns.SingleAsync(item => item.Id == column.Id);
+            Assert.False(await firstContext.Tasks.AnyAsync(item => item.ColumnId == column.Id));
+            firstContext.Columns.Remove(deletingColumn);
+
+            await using var racingContext = new ScrumBoardDbContext(
+                new DbContextOptionsBuilder<ScrumBoardDbContext>().UseNpgsql(database.ConnectionString).Options);
+            racingContext.Tasks.Add(new TaskItem(Guid.NewGuid(), project.Id, column.Id, "Racing task", null,
+                TaskPriority.Low, DemoOwnerId, null, 1024, now));
+            await racingContext.SaveChangesAsync();
+
+            var exception = await Assert.ThrowsAsync<ScrumBoard.Application.Errors.ConflictException>(() =>
+                ((IUnitOfWork)firstContext).SaveChangesAsync(default));
+            Assert.Equal("column_not_empty", exception.Code);
+        }
+        finally
+        {
+            await using var cleanup = new ScrumBoardDbContext(
+                new DbContextOptionsBuilder<ScrumBoardDbContext>().UseNpgsql(database.ConnectionString).Options);
+            await cleanup.Tasks.Where(item => item.ProjectId == project.Id).ExecuteDeleteAsync();
+            await cleanup.Projects.Where(item => item.Id == project.Id).ExecuteDeleteAsync();
+        }
+    }
+
+    [DockerFact]
+    public async Task ReportDataSource_AuthorizesAndLoadsFilteredReportWithOneSqlCommand()
+    {
+        database.EnsureAvailable();
+        var interceptor = new CountingCommandInterceptor();
+        var options = new DbContextOptionsBuilder<ScrumBoardDbContext>()
+            .UseNpgsql(database.ConnectionString)
+            .AddInterceptors(interceptor)
+            .Options;
+        await using var dbContext = new ScrumBoardDbContext(options);
+        var dataSource = new ReportDataSource(dbContext);
+        using var cancellation = new CancellationTokenSource();
+
+        var report = await dataSource.GetAsync(DemoProjectId, DemoOwnerId,
+            new TaskFilter(Search: "i"),
+            DateTimeOffset.UtcNow, ReportUseCase.MaximumSynchronousTaskRows + 1, cancellation.Token);
 
         Assert.NotNull(report);
         Assert.Equal("ScrumBoard Launch", report.ProjectName);
-        Assert.Empty(report.Tasks);
+        Assert.Equal(
+            ["Review product backlog", "Build collaborative board", "Define architecture"],
+            report.Tasks.Select(task => task.Title));
+        Assert.Equal(["Backlog", "In progress", "Done"], report.Tasks.Select(task => task.Column));
+        Assert.Equal(1, interceptor.ReaderCommandCount);
+        Assert.Contains("LIMIT", interceptor.LastReaderCommandText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(interceptor.LastReaderParameterValues,
+            value => value is int intValue && intValue == ReportUseCase.MaximumSynchronousTaskRows + 1);
+        Assert.Equal(cancellation.Token, interceptor.LastReaderCancellationToken);
     }
 
     [DockerFact]
@@ -252,9 +555,9 @@ public sealed class PostgreSqlPersistenceTests(PostgreSqlFixture database)
         var request = new CreateProject("Idempotent project", null, new DateOnly(2026, 8, 4),
             new DateOnly(2026, 8, 11), ProjectStatus.Active);
 
-        var firstResponse = await client.PostAsJsonAsync("/api/v1/projects", request);
+        var firstResponse = await client.PostAsJsonAsync("/api/v1/projects", request, ApiJsonOptions);
         var firstBody = await firstResponse.Content.ReadAsStringAsync();
-        var replayResponse = await client.PostAsJsonAsync("/api/v1/projects", request);
+        var replayResponse = await client.PostAsJsonAsync("/api/v1/projects", request, ApiJsonOptions);
         var replayBody = await replayResponse.Content.ReadAsStringAsync();
 
         Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
@@ -266,12 +569,13 @@ public sealed class PostgreSqlPersistenceTests(PostgreSqlFixture database)
         Assert.Equal(firstResponse.Content.Headers.ContentType, replayResponse.Content.Headers.ContentType);
         Assert.Equal(firstBody, replayBody);
 
-        var conflictResponse = await client.PostAsJsonAsync("/api/v1/projects", request with { Name = "Different" });
+        var conflictResponse = await client.PostAsJsonAsync(
+            "/api/v1/projects", request with { Name = "Different" }, ApiJsonOptions);
         Assert.Equal(HttpStatusCode.Conflict, conflictResponse.StatusCode);
 
         var crossOperationResponse = await client.PostAsJsonAsync($"/api/v1/projects/{DemoProjectId}/tasks",
             new CreateTask(Guid.Parse("30000000-0000-0000-0000-000000000001"), "Different operation", null,
-                TaskPriority.Low, null, null));
+                TaskPriority.Low, DemoOwnerId, null), ApiJsonOptions);
         Assert.Equal(HttpStatusCode.Conflict, crossOperationResponse.StatusCode);
 
         client.DefaultRequestHeaders.Remove("Idempotency-Key");
@@ -279,9 +583,11 @@ public sealed class PostgreSqlPersistenceTests(PostgreSqlFixture database)
         client.DefaultRequestHeaders.Add("Idempotency-Key", routeKey);
         var routeRequest = new CreateTask(
             Guid.Parse("30000000-0000-0000-0000-000000000001"),
-            $"Route fingerprint {Guid.NewGuid():N}", null, TaskPriority.Low, null, null);
-        var firstRouteResponse = await client.PostAsJsonAsync($"/api/v1/projects/{DemoProjectId}/tasks", routeRequest);
-        var otherRouteResponse = await client.PostAsJsonAsync($"/api/v1/projects/{Guid.NewGuid()}/tasks", routeRequest);
+            $"Route fingerprint {Guid.NewGuid():N}", null, TaskPriority.Low, DemoOwnerId, null);
+        var firstRouteResponse = await client.PostAsJsonAsync(
+            $"/api/v1/projects/{DemoProjectId}/tasks", routeRequest, ApiJsonOptions);
+        var otherRouteResponse = await client.PostAsJsonAsync(
+            $"/api/v1/projects/{Guid.NewGuid()}/tasks", routeRequest, ApiJsonOptions);
 
         Assert.Equal(HttpStatusCode.Created, firstRouteResponse.StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, otherRouteResponse.StatusCode);
@@ -311,8 +617,10 @@ public sealed class PostgreSqlPersistenceTests(PostgreSqlFixture database)
             DemoOwnerId,
             null);
 
-        var firstResponse = await client.PostAsJsonAsync($"/api/v1/projects/{DemoProjectId}/tasks", request);
-        var replayResponse = await client.PostAsJsonAsync($"/api/v1/projects/{DemoProjectId}/tasks", request);
+        var firstResponse = await client.PostAsJsonAsync(
+            $"/api/v1/projects/{DemoProjectId}/tasks", request, ApiJsonOptions);
+        var replayResponse = await client.PostAsJsonAsync(
+            $"/api/v1/projects/{DemoProjectId}/tasks", request, ApiJsonOptions);
 
         Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
         Assert.Equal(firstResponse.Headers.ETag, replayResponse.Headers.ETag);
@@ -325,6 +633,41 @@ public sealed class PostgreSqlPersistenceTests(PostgreSqlFixture database)
         Assert.Equal(1, await dbContext.Tasks.CountAsync(task => task.Title == request.Title));
         await dbContext.Tasks.Where(task => task.Title == request.Title).ExecuteDeleteAsync();
         await dbContext.IdempotencyRecords.Where(record => record.Key == idempotencyKey).ExecuteDeleteAsync();
+    }
+
+    [DockerFact]
+    public async Task ProjectRepresentationEtagChangesWhenTouchBoardChangesReturnedRepresentation()
+    {
+        database.EnsureAvailable();
+        var now = DateTimeOffset.UtcNow;
+        var project = new Project(Guid.NewGuid(), "ETag project", null, new DateOnly(2026, 8, 5),
+            new DateOnly(2026, 8, 20), ProjectStatus.Active, DemoOwnerId, now);
+        await using var provider = database.BuildServices();
+        await using var scope = provider.CreateAsyncScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<ScrumBoardDbContext>();
+        var repository = scope.ServiceProvider.GetRequiredService<IProjectRepository>();
+        dbContext.Projects.Add(project);
+        await dbContext.SaveChangesAsync();
+
+        try
+        {
+            var before = await repository.GetDetailsAsync(project.Id, DemoOwnerId, default);
+            project.TouchBoard(now.AddMinutes(1));
+            await ((IUnitOfWork)dbContext).SaveChangesAsync(default);
+            var after = await repository.GetDetailsAsync(project.Id, DemoOwnerId, default);
+
+            Assert.NotNull(before);
+            Assert.NotNull(after);
+            Assert.Equal(before.BoardVersion + 1, after.BoardVersion);
+            Assert.Equal(before.Version + 1, after.Version);
+            Assert.NotEqual(before.UpdatedAt, after.UpdatedAt);
+            Assert.NotEqual(EntityTags.Format(before.Version), EntityTags.Format(after.Version));
+        }
+        finally
+        {
+            dbContext.ChangeTracker.Clear();
+            await dbContext.Projects.Where(item => item.Id == project.Id).ExecuteDeleteAsync();
+        }
     }
 
     [DockerFact]
@@ -357,10 +700,11 @@ public sealed class PostgreSqlPersistenceTests(PostgreSqlFixture database)
         var update = new UpdateProject("ScrumBoard Launch", null, new DateOnly(2026, 7, 30),
             new DateOnly(2026, 8, 30), ProjectStatus.Active);
 
-        var missingTag = await client.PutAsJsonAsync($"/api/v1/projects/{DemoProjectId}", update);
+        var missingTag = await client.PutAsJsonAsync(
+            $"/api/v1/projects/{DemoProjectId}", update, ApiJsonOptions);
         using var staleRequest = new HttpRequestMessage(HttpMethod.Put, $"/api/v1/projects/{DemoProjectId}")
         {
-            Content = JsonContent.Create(update)
+            Content = JsonContent.Create(update, options: ApiJsonOptions)
         };
         staleRequest.Headers.TryAddWithoutValidation("If-Match", "\"999\"");
         var staleTag = await client.SendAsync(staleRequest);
@@ -426,6 +770,13 @@ public sealed class PostgreSqlPersistenceTests(PostgreSqlFixture database)
 
     private static string CreateOwnerToken() => CreateToken(DemoOwnerId, "Demo Owner");
 
+    private static JsonSerializerOptions CreateApiJsonOptions()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false));
+        return options;
+    }
+
     private static string CreateToken(Guid userId, string name)
     {
         var credentials = new SigningCredentials(
@@ -441,5 +792,30 @@ public sealed class PostgreSqlPersistenceTests(PostgreSqlFixture database)
             expires: DateTime.UtcNow.AddMinutes(5),
             signingCredentials: credentials);
         return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+}
+
+internal sealed class CountingCommandInterceptor : DbCommandInterceptor
+{
+    private int _readerCommandCount;
+
+    public int ReaderCommandCount => _readerCommandCount;
+    public string LastReaderCommandText { get; private set; } = string.Empty;
+    public IReadOnlyList<object?> LastReaderParameterValues { get; private set; } = [];
+    public CancellationToken LastReaderCancellationToken { get; private set; }
+
+    public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+        DbCommand command,
+        CommandEventData eventData,
+        InterceptionResult<DbDataReader> result,
+        CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref _readerCommandCount);
+        LastReaderCommandText = command.CommandText;
+        LastReaderParameterValues = command.Parameters.Cast<DbParameter>()
+            .Select(parameter => parameter.Value)
+            .ToArray();
+        LastReaderCancellationToken = cancellationToken;
+        return ValueTask.FromResult(result);
     }
 }

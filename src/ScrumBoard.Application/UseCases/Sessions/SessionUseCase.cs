@@ -8,8 +8,32 @@ public sealed class SessionUseCase(IUserRepository users, IPasswordHasher passwo
 {
     public async Task<SessionResponse> CreateAsync(CreateSession request, CancellationToken cancellationToken)
     {
-        var user = await users.FindByEmailAsync(request.Email.Trim().ToLowerInvariant(), cancellationToken);
-        if (user is null || !user.IsActive || !passwordHasher.Verify(request.Password, user.PasswordHash))
+        request = InputValidation.Required(request, "request_required", "El cuerpo de la solicitud es obligatorio.");
+        var email = request.Email?.Trim();
+        if (string.IsNullOrEmpty(email))
+        {
+            throw new ValidationException("email_required", "El correo electrónico es obligatorio.");
+        }
+
+        if (email.Length > 254)
+        {
+            throw new ValidationException("email_too_long", "El correo electrónico no puede superar 254 caracteres.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Password))
+        {
+            throw new ValidationException("password_required", "La contraseña es obligatoria.");
+        }
+
+        if (request.Password.Length > 256)
+        {
+            throw new ValidationException("password_too_long", "La contraseña no puede superar 256 caracteres.");
+        }
+
+        var user = await users.FindByEmailAsync(email.ToLowerInvariant(), cancellationToken);
+        var passwordHash = user is { IsActive: true } ? user.PasswordHash : passwordHasher.DummyHash;
+        var passwordMatches = passwordHasher.Verify(request.Password, passwordHash);
+        if (user is not { IsActive: true } || !passwordMatches)
         {
             throw new AuthenticationFailedException();
         }

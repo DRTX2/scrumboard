@@ -21,16 +21,17 @@ internal sealed class ApiExceptionHandler(
     {
         var (status, code, title) = exception switch
         {
-            AuthenticationFailedException => (StatusCodes.Status401Unauthorized, "invalid_credentials", "Authentication failed."),
-            ForbiddenException appProblem => (StatusCodes.Status403Forbidden, appProblem.Code, "Access denied."),
-            NotFoundException appProblem => (StatusCodes.Status404NotFound, appProblem.Code, "Resource not found."),
-            ConflictException appProblem => (StatusCodes.Status409Conflict, appProblem.Code, "The request conflicts with current state."),
+            ValidationException appProblem => (StatusCodes.Status400BadRequest, appProblem.Code, "La solicitud no es válida."),
+            AuthenticationFailedException => (StatusCodes.Status401Unauthorized, "invalid_credentials", "Autenticación fallida."),
+            ForbiddenException appProblem => (StatusCodes.Status403Forbidden, appProblem.Code, "Acceso denegado."),
+            NotFoundException appProblem => (StatusCodes.Status404NotFound, appProblem.Code, "No se encontró el recurso."),
+            ConflictException appProblem => (StatusCodes.Status409Conflict, appProblem.Code, "La solicitud entra en conflicto con el estado actual."),
             OptimisticConcurrencyException appProblem => (StatusCodes.Status412PreconditionFailed,
-                appProblem.Code == "version_mismatch" ? "etag_mismatch" : appProblem.Code, "The resource has changed."),
-            EntityTagRequiredException => (StatusCodes.Status428PreconditionRequired, "if_match_required", "A precondition is required."),
-            DomainException domainProblem => (StatusCodes.Status422UnprocessableEntity, domainProblem.Code, "Business validation failed."),
-            BadHttpRequestException => (StatusCodes.Status400BadRequest, "invalid_request", "The request is invalid."),
-            _ => (StatusCodes.Status500InternalServerError, "unexpected_error", "An unexpected error occurred.")
+                appProblem.Code == "version_mismatch" ? "etag_mismatch" : appProblem.Code, "El recurso cambió."),
+            EntityTagRequiredException => (StatusCodes.Status428PreconditionRequired, "if_match_required", "Se requiere una precondición."),
+            DomainException domainProblem => (StatusCodes.Status422UnprocessableEntity, domainProblem.Code, "La validación de negocio falló."),
+            BadHttpRequestException => (StatusCodes.Status400BadRequest, "invalid_request", "La solicitud no es válida."),
+            _ => (StatusCodes.Status500InternalServerError, "unexpected_error", "Ocurrió un error inesperado.")
         };
 
         if (status >= 500) UnhandledError(logger, context.TraceIdentifier, exception);
@@ -41,7 +42,7 @@ internal sealed class ApiExceptionHandler(
         {
             Status = status,
             Title = title,
-            Detail = status >= 500 ? "The server could not complete the request." : exception.Message,
+            Detail = DetailFor(status, code, exception),
             Type = TypeFor(status),
             Instance = context.Request.Path
         };
@@ -63,5 +64,13 @@ internal sealed class ApiExceptionHandler(
         422 => "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.21",
         428 => "https://www.rfc-editor.org/rfc/rfc6585#section-3",
         _ => "https://www.rfc-editor.org/rfc/rfc9110#section-15.6.1"
+    };
+
+    private static string DetailFor(int status, string code, Exception exception) => (status, code) switch
+    {
+        (>= 500, _) => "El servidor no pudo completar la solicitud.",
+        (_, "project_not_found") => "No se encontró el proyecto.",
+        (_, "unsupported_report_format") => "El formato de reporte solicitado no es compatible.",
+        _ => exception.Message
     };
 }

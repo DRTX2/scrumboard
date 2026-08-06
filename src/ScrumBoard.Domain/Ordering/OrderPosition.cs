@@ -44,8 +44,10 @@ public static class OrderPosition
     }
 
     public static IReadOnlyList<long> Rebalance(int count) =>
-        Enumerable.Range(1, count).Select(index => checked((long)index * Step)).ToArray();
+        count >= 0
+            ? Enumerable.Range(1, count).Select(index => checked((long)index * Step)).ToArray()
+            : throw new DomainException("invalid_order_count", "La cantidad de elementos no puede ser negativa.");
 
     private static DomainException RebalanceRequired() =>
-        new("order_rebalance_required", "The ordered collection must be rebalanced before inserting the item.");
+        new("order_rebalance_required", "La colección ordenada debe reequilibrarse antes de insertar el elemento.");
 }

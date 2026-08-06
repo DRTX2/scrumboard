@@ -44,7 +44,10 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_HTTP_PORTS: 8080
       ConnectionStrings__Database: Host=database;Port=5432;Database=${POSTGRES_DB:-scrumboard};Username=${POSTGRES_USER:-scrumboard};Password=${POSTGRES_PASSWORD:?Define POSTGRES_PASSWORD in .env}
+      Jwt__Issuer: ${JWT_ISSUER:?Define JWT_ISSUER in .env}
+      Jwt__Audience: ${JWT_AUDIENCE:?Define JWT_AUDIENCE in .env}
       Jwt__SigningKey: ${JWT_SIGNING_KEY:?Define JWT_SIGNING_KEY in .env}
+      Jwt__LifetimeMinutes: ${JWT_LIFETIME_MINUTES:-30}
       Password__Pepper: ${PASSWORD_PEPPER:?Define PASSWORD_PEPPER in .env}
       Cors__AllowedOrigins__0: ${FRONTEND_ORIGIN:-http://localhost:8080}
     ports:

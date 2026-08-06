@@ -2,9 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using ScrumBoard.Api.Adapters.Inbound.Http.Contracts;
 using ScrumBoard.Api.Infrastructure;
-using ScrumBoard.Application.Models.Tasks;
 using ScrumBoard.Application.Ports.Inbound.Boards;
-using ScrumBoard.Domain.Tasks;
 
 namespace ScrumBoard.Api.Adapters.Inbound.Http;
 
@@ -16,12 +14,10 @@ public sealed class BoardsController(IBoardUseCase boards) : ControllerBase
     [HttpGet("board")]
     public async Task<ActionResult<BoardResponse>> Get(
         Guid projectId,
-        [FromQuery] Guid? assigneeId,
-        [FromQuery] TaskPriority? priority,
-        [FromQuery] string? search,
-        CancellationToken cancellationToken)
+        [FromQuery] BoardQueryRequest query,
+        CancellationToken cancellationToken = default)
     {
-        var board = await boards.GetAsync(projectId, new TaskFilter(assigneeId, priority, search), cancellationToken);
+        var board = await boards.GetAsync(projectId, query.ToFilter(), query.TaskLimit, cancellationToken);
         EntityTags.Write(Response, board.BoardVersion);
         return Ok(board.ToResponse());
     }

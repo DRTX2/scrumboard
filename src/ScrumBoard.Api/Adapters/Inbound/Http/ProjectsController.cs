@@ -13,13 +13,13 @@ public sealed class ProjectsController(IProjectUseCase projects) : ControllerBas
 {
     [HttpGet]
     public async Task<ActionResult<PageResponse<ProjectResponse>>> List(
-        [FromQuery] ProjectListQuery query,
+        [FromQuery] ProjectListRequest query,
         CancellationToken cancellationToken)
     {
-        var page = await projects.ListAsync(query, cancellationToken);
+        var page = await projects.ListAsync(query.ToQuery(), cancellationToken);
         Response.Headers["X-Total-Count"] = page.TotalCount.ToString(System.Globalization.CultureInfo.InvariantCulture);
         return Ok(new PageResponse<ProjectResponse>(
-            page.Items.Select(ApiResponses.ToResponse).ToList(), page.Page, page.PageSize, page.TotalCount, page.TotalPages));
+            page.Items.Select(ApiResponseMappings.ToResponse).ToList(), page.Page, page.PageSize, page.TotalCount, page.TotalPages));
     }
 
     [HttpGet("{projectId:guid}")]
@@ -32,9 +32,9 @@ public sealed class ProjectsController(IProjectUseCase projects) : ControllerBas
 
     [HttpPost]
     [Idempotent]
-    public async Task<ActionResult<ProjectDetailsResponse>> Create(CreateProject request, CancellationToken cancellationToken)
+    public async Task<ActionResult<ProjectDetailsResponse>> Create(CreateProjectRequest request, CancellationToken cancellationToken)
     {
-        var project = await projects.CreateAsync(request, cancellationToken);
+        var project = await projects.CreateAsync(request.ToCommand(), cancellationToken);
         EntityTags.Write(Response, project.Version);
         return CreatedAtAction(nameof(Get), new { projectId = project.Id }, project.ToResponse());
     }
@@ -42,10 +42,10 @@ public sealed class ProjectsController(IProjectUseCase projects) : ControllerBas
     [HttpPut("{projectId:guid}")]
     public async Task<ActionResult<ProjectDetailsResponse>> Update(
         Guid projectId,
-        UpdateProject request,
+        UpdateProjectRequest request,
         CancellationToken cancellationToken)
     {
-        var project = await projects.UpdateAsync(projectId, request, EntityTags.Require(Request), cancellationToken);
+        var project = await projects.UpdateAsync(projectId, request.ToCommand(), EntityTags.Require(Request), cancellationToken);
         EntityTags.Write(Response, project.Version);
         return Ok(project.ToResponse());
     }

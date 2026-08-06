@@ -8,7 +8,12 @@ internal sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
 {
     public void Configure(EntityTypeBuilder<Project> builder)
     {
-        builder.ToTable("projects");
+        builder.ToTable("projects", table =>
+        {
+            table.HasCheckConstraint("ck_projects_dates", "expected_end_date >= start_date");
+            table.HasCheckConstraint("ck_projects_status", "status IN ('Planned', 'Active', 'Completed', 'Archived')");
+            table.HasCheckConstraint("ck_projects_versions", "version > 0 AND board_version > 0");
+        });
         builder.HasKey(project => project.Id);
         builder.Property(project => project.Id).HasColumnName("id");
         builder.Property(project => project.Name).HasColumnName("name").HasMaxLength(160).IsRequired();
@@ -27,8 +32,5 @@ internal sealed class ProjectConfiguration : IEntityTypeConfiguration<Project>
         builder.Navigation(project => project.Members).UsePropertyAccessMode(PropertyAccessMode.Field);
         builder.HasIndex(project => project.Name).HasDatabaseName("ix_projects_name");
         builder.HasIndex(project => project.UpdatedAt).HasDatabaseName("ix_projects_updated_at");
-        builder.ToTable(table => table.HasCheckConstraint(
-            "ck_projects_dates",
-            "expected_end_date >= start_date"));
     }
 }

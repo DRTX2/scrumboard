@@ -16,10 +16,10 @@ public sealed class TasksController(IBoardUseCase boards) : ControllerBase
     [Idempotent]
     public async Task<ActionResult<TaskMutationResponse>> Create(
         Guid projectId,
-        CreateTask request,
+        CreateTaskRequest request,
         CancellationToken cancellationToken)
     {
-        var task = await boards.CreateTaskAsync(projectId, request, cancellationToken);
+        var task = await boards.CreateTaskAsync(projectId, request.ToCommand(), cancellationToken);
         WriteTags(task);
         return Created($"/api/v1/projects/{projectId}/tasks/{task.Id}", task.ToResponse());
     }
@@ -28,10 +28,10 @@ public sealed class TasksController(IBoardUseCase boards) : ControllerBase
     public async Task<ActionResult<TaskMutationResponse>> Update(
         Guid projectId,
         Guid taskId,
-        UpdateTask request,
+        UpdateTaskRequest request,
         CancellationToken cancellationToken)
     {
-        var task = await boards.UpdateTaskAsync(projectId, taskId, request, EntityTags.Require(Request), cancellationToken);
+        var task = await boards.UpdateTaskAsync(projectId, taskId, request.ToCommand(), EntityTags.Require(Request), cancellationToken);
         WriteTags(task);
         return Ok(task.ToResponse());
     }
@@ -40,10 +40,10 @@ public sealed class TasksController(IBoardUseCase boards) : ControllerBase
     public async Task<ActionResult<TaskMutationResponse>> Move(
         Guid projectId,
         Guid taskId,
-        MoveTask request,
+        MoveTaskRequest request,
         CancellationToken cancellationToken)
     {
-        var task = await boards.MoveTaskAsync(projectId, taskId, request, EntityTags.Require(Request), cancellationToken);
+        var task = await boards.MoveTaskAsync(projectId, taskId, request.ToCommand(), EntityTags.Require(Request), cancellationToken);
         WriteTags(task);
         return Ok(task.ToResponse());
     }
@@ -51,7 +51,8 @@ public sealed class TasksController(IBoardUseCase boards) : ControllerBase
     [HttpDelete("{taskId:guid}")]
     public async Task<IActionResult> Delete(Guid projectId, Guid taskId, CancellationToken cancellationToken)
     {
-        await boards.DeleteTaskAsync(projectId, taskId, EntityTags.Require(Request), cancellationToken);
+        var boardVersion = await boards.DeleteTaskAsync(projectId, taskId, EntityTags.Require(Request), cancellationToken);
+        Response.Headers["X-Board-ETag"] = EntityTags.Format(boardVersion);
         return NoContent();
     }
 

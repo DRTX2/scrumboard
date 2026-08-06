@@ -8,7 +8,7 @@ public sealed class User
 
     public User(Guid id, string name, string email, string passwordHash, DateTimeOffset createdAt)
     {
-        Id = id;
+        Id = Guard.Required(id, nameof(id));
         Name = Guard.Required(name, nameof(name), 120);
         Email = Guard.Required(email, nameof(email), 254).ToLowerInvariant();
         PasswordHash = Guard.Required(passwordHash, nameof(passwordHash), 512);

@@ -3,15 +3,19 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence;
 using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence.Seed;
+using ScrumBoard.Infrastructure.Configuration;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Logging.AddFilter("Microsoft.EntityFrameworkCore.Database.Command", LogLevel.Warning);
-var connectionString = builder.Configuration.GetConnectionString("Database")
-    ?? throw new InvalidOperationException("ConnectionStrings:Database is required.");
-builder.Services.AddDbContext<ScrumBoardDbContext>(options =>
-    options.UseNpgsql(connectionString, npgsql =>
+builder.Services.AddOptions<DatabaseOptions>()
+    .Bind(builder.Configuration.GetSection(DatabaseOptions.SectionName))
+    .Validate(options => !string.IsNullOrWhiteSpace(options.Database), "ConnectionStrings:Database is required.")
+    .ValidateOnStart();
+builder.Services.AddDbContext<ScrumBoardDbContext>((provider, options) =>
+    options.UseNpgsql(provider.GetRequiredService<IOptions<DatabaseOptions>>().Value.Database, npgsql =>
         npgsql.MigrationsAssembly(typeof(ScrumBoardDbContext).Assembly.FullName)));
 
 using var host = builder.Build();

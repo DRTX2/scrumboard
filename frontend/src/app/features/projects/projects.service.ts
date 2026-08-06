@@ -14,7 +14,7 @@ export class ProjectsService {
   list(query: ProjectQuery): Observable<PageResult<Project>> {
     const params = new HttpParams()
       .set('page', query.page).set('pageSize', query.pageSize)
-      .set('search', query.search).set('sort', query.sort).set('direction', query.direction);
+      .set('search', query.search.trim()).set('sort', query.sort).set('direction', query.direction);
     return this.http.get<unknown>(this.config.endpoint('projects'), { params, observe: 'response' }).pipe(
       map(response => {
         const body = response.body as Project[] | { items?: Project[]; data?: Project[]; results?: Project[]; total?: number; totalCount?: number } | null;

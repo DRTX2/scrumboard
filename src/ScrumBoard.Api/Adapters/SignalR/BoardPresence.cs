@@ -2,10 +2,6 @@ using System.Collections.Concurrent;
 
 namespace ScrumBoard.Api.Adapters.SignalR;
 
-internal sealed record PresenceUser(Guid Id, string Name);
-internal sealed record PresenceSnapshot(IReadOnlyList<PresenceUser> Users, long Version);
-internal sealed record PresenceUpdate(Guid ProjectId, PresenceSnapshot Snapshot);
-
 public sealed class BoardPresence
 {
     private readonly object _gate = new();

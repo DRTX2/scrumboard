@@ -9,7 +9,7 @@ ScrumBoard usa el entorno compartido de Azure Container Apps `env-mplink` en `we
 | `staging` | `develop` | `scrumboard-staging-rg-south` | `scrumboard-staging` | `scrumboard_staging` |
 | `production` | `main` | `scrumboard-prod-rg-south` | `scrumboard-prod` | `scrumboard_production` |
 
-Cada ambiente contiene una API pública, un frontend público y un job manual `<prefijo>-migrations`. Las imágenes se publican en GHCR con el SHA completo del commit:
+Cada ambiente contiene una API pública, un frontend público y un job manual `<prefijo>-migrations`. Las imágenes se publican en GHCR con el SHA completo del commit como tag de trazabilidad:
 
 ```text
 ghcr.io/drtx2/scrumboard-api:<sha>
@@ -17,7 +17,9 @@ ghcr.io/drtx2/scrumboard-web:<sha>
 ghcr.io/drtx2/scrumboard-migrator:<sha>
 ```
 
-Los paquetes GHCR permanecen privados y se vinculan al repositorio mediante OCI source labels. Cada GitHub Environment conserva un `GHCR_READ_TOKEN`, que Azure almacena como secret ref de registro. API y web usan revision mode `Single`; la API queda limitada a una réplica hasta incorporar un backplane distribuido para SignalR.
+El workflow obtiene el digest producido por cada build y entrega a Azure exclusivamente referencias `ghcr.io/...@sha256:...`; nunca despliega los tags SHA mutables. Los paquetes GHCR permanecen privados y se vinculan al repositorio mediante OCI source labels. Cada GitHub Environment conserva un `GHCR_READ_TOKEN`, que Azure almacena como secret ref de registro. API y web usan revision mode `Single`; la API queda limitada a una réplica porque grupos, presencia y versiones de presencia SignalR viven en memoria del proceso. Dos réplicas producirían vistas parciales aunque compartieran PostgreSQL.
+
+El escalado requiere dos piezas coordinadas: Azure SignalR Service o Redis como backplane para fan-out, y presencia/versionado distribuidos. Para que una notificación sobreviva a una caída posterior al commit se necesita además un outbox transaccional con publicación reintentable; ni el backplane ni la presencia distribuida aportan esa durabilidad por sí solos.
 
 ## Ciclo de ramas
 
@@ -27,7 +29,7 @@ Los paquetes GHCR permanecen privados y se vinculan al repositorio mediante OCI 
 4. La promoción se realiza mediante PR de `develop` hacia `main`; no se reconstruye código distinto para una revisión concreta y todas las imágenes mantienen tags inmutables.
 5. El merge a `main` ejecuta nuevamente los gates y prepara `production` mediante su GitHub Environment y sus secretos aislados; el rollout requiere aprobación explícita del propietario.
 
-`workflow_dispatch` permite repetir un despliegue, pero valida que `staging` use `develop` y `production` use `main`. El Environment de staging también admite `main` como rama controladora porque GitHub ejecuta los jobs `workflow_run` desde la default branch; la validación del workflow sigue exigiendo que el CI origen y el SHA desplegado pertenezcan a `develop`. Los grupos de concurrencia evitan dos rollouts simultáneos del mismo ambiente.
+`workflow_dispatch` permite repetir un despliegue, pero valida que `staging` use `develop` y `production` use `main`, resuelve el HEAD inmutable y exige un workflow `CI` completado correctamente para ese SHA. El Environment de staging también admite `main` como rama controladora porque GitHub ejecuta los jobs `workflow_run` desde la default branch; la validación del workflow sigue exigiendo que el CI origen y el SHA desplegado pertenezcan a `develop`. Los triggers manual y `workflow_run` resuelven el mismo grupo de concurrencia `staging` o `production`, por lo que un ambiente nunca ejecuta dos rollouts simultáneos.
 
 ## Orden de despliegue
 
@@ -37,14 +39,16 @@ Los paquetes GHCR permanecen privados y se vinculan al repositorio mediante OCI 
 2. Construye API, frontend y migrador.
 3. Bloquea vulnerabilidades HIGH/CRITICAL corregibles con Trivy.
 4. Genera SBOM CycloneDX y provenance attestations.
-5. Publica imágenes SHA en GHCR.
-6. Actualiza exclusivamente el job de migración mediante `deploy/azure/migration-job.bicep`.
-7. Ejecuta y sondea el job hasta `Succeeded`.
-8. Despliega API y web mediante `deploy/azure/apps.bicep`.
-9. Espera que `latestRevisionName` sea igual a `latestReadyRevisionName`.
-10. Comprueba live, readiness, frontend y login bootstrap.
+5. Publica las imágenes en GHCR, conserva sus digests como artefactos y despliega por digest.
+6. Actualiza la definición del job de migración mediante `deploy/azure/migration-job.bicep`, sin ejecutarlo todavía.
+7. Despliega API y web mediante `deploy/azure/apps.bicep` con `MaintenanceMode=true`.
+8. Espera que la revisión de API nueva sea ready y la única activa en modo `Single`, y comprueba el 503 de mantenimiento y ambos health checks.
+9. Ejecuta y sondea el job hasta `Succeeded`.
+10. Despliega exactamente los mismos digests de API y web con `MaintenanceMode=false`; el cambio de variable crea una revisión de API.
+11. Espera una única revisión activa y ready por aplicación.
+12. Comprueba live, readiness, frontend y login bootstrap.
 
-La API nunca aplica migraciones durante su arranque. Un fallo de migración impide que se despliegue la nueva revisión de aplicación.
+La API nunca aplica migraciones durante su arranque. Durante mantenimiento, cualquier ruta distinta de `/health/live` y `/health/ready`, incluidos API, hubs y documentación, responde RFC Problem Details en español con HTTP 503, código `maintenance_mode` y `Retry-After: 60`. Si la migración falla o expira, el workflow se detiene y esa revisión de mantenimiento permanece como la única activa; no vuelve a exponer la revisión incompatible anterior. La historia actual termina en `20260806021724_RequireTaskAssigneeAndAddChecks`, que repara responsables nulos/no miembros antes de exigir la FK compuesta; el job actualiza la base en sitio y no recrea bases ni volúmenes.
 
 ## Migraciones y bootstrap
 
@@ -144,7 +148,7 @@ Para una rotación, actualice el GitHub Environment secret y relance `Deploy Azu
 - OIDC sustituye credenciales Azure persistentes.
 - Los secretos Bicep son `@secure` y se convierten en secret refs de Container Apps.
 - Staging y production no comparten base, JWT, pepper ni cuenta bootstrap.
-- El job de migración precede al rollout.
-- Las revisiones se validan por nombre, no mediante una respuesta de una revisión anterior.
+- El rollout de mantenimiento precede al job de migración y el rollout funcional solo ocurre tras `Succeeded`.
+- Las revisiones se validan por nombre y como única revisión activa, no mediante una respuesta de una revisión anterior.
 - Branch protection exige PR y checks antes de integrar en `develop` o `main`.
 - Production queda adicionalmente restringido por el GitHub Environment `production`.

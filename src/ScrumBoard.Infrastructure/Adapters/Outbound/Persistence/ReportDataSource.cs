@@ -9,68 +9,78 @@ internal sealed class ReportDataSource(ScrumBoardDbContext dbContext) : IReportD
 {
     public async Task<ProjectReportData?> GetAsync(
         Guid projectId,
+        Guid userId,
         TaskFilter filter,
         DateTimeOffset generatedAt,
+        int taskRowLimit,
         CancellationToken cancellationToken)
     {
-        var project = await dbContext.Projects.AsNoTracking()
-            .Where(item => item.Id == projectId)
-            .Select(item => new
-            {
-                item.Id,
-                item.Name,
-                item.Description,
-                item.StartDate,
-                item.ExpectedEndDate,
-                item.Status
-            })
-            .SingleOrDefaultAsync(cancellationToken);
-        if (project is null) return null;
+        ArgumentOutOfRangeException.ThrowIfLessThan(taskRowLimit, 1);
 
-        var query =
-            from task in dbContext.Tasks.AsNoTracking()
-            join column in dbContext.Columns.AsNoTracking() on task.ColumnId equals column.Id
-            join userValue in dbContext.Users.AsNoTracking() on task.AssigneeId equals userValue.Id into taskUsers
-            from assignee in taskUsers.DefaultIfEmpty()
-            where task.ProjectId == projectId
-            select new
-            {
-                task.Title,
-                task.Description,
-                task.AssigneeId,
-                task.Priority,
-                task.CreatedAt,
-                ColumnName = column.Name,
-                AssigneeName = assignee == null ? null : assignee.Name
-            };
-
-        if (filter.AssigneeId is not null) query = query.Where(row => row.AssigneeId == filter.AssigneeId);
-        if (filter.Priority is not null) query = query.Where(row => row.Priority == filter.Priority);
+        var tasks = dbContext.Tasks.AsNoTracking().Where(task => task.ProjectId == projectId);
+        if (filter.AssigneeId is not null) tasks = tasks.Where(task => task.AssigneeId == filter.AssigneeId);
+        if (filter.Priority is not null) tasks = tasks.Where(task => task.Priority == filter.Priority);
         if (!string.IsNullOrWhiteSpace(filter.Search))
         {
             var pattern = PostgreSqlLike.ContainsLiteral(filter.Search);
-            query = query.Where(row => EF.Functions.ILike(
-                    row.Title, pattern, PostgreSqlLike.EscapeCharacter) ||
-                (row.Description != null && EF.Functions.ILike(
-                    row.Description, pattern, PostgreSqlLike.EscapeCharacter)));
+            tasks = tasks.Where(task => EF.Functions.ILike(
+                    task.Title, pattern, PostgreSqlLike.EscapeCharacter) ||
+                (task.Description != null && EF.Functions.ILike(
+                    task.Description, pattern, PostgreSqlLike.EscapeCharacter)));
         }
 
-        var tasks = await query.OrderBy(row => row.ColumnName).ThenBy(row => row.CreatedAt)
-            .Select(row => new ProjectReportTask(
-                row.Title,
-                row.ColumnName,
-                row.AssigneeName,
-                row.Priority,
-                row.CreatedAt))
+        var rows = await (
+                from project in dbContext.Projects.AsNoTracking()
+                join membership in dbContext.ProjectMembers.AsNoTracking()
+                    on project.Id equals membership.ProjectId
+                where project.Id == projectId && membership.UserId == userId
+                join taskValue in tasks on project.Id equals taskValue.ProjectId into projectTasks
+                from task in projectTasks.DefaultIfEmpty()
+                join columnValue in dbContext.Columns.AsNoTracking()
+                    on task.ColumnId equals columnValue.Id into taskColumns
+                from column in taskColumns.DefaultIfEmpty()
+                join assigneeValue in dbContext.Users.AsNoTracking()
+                    on task.AssigneeId equals assigneeValue.Id into taskAssignees
+                from assignee in taskAssignees.DefaultIfEmpty()
+                orderby column.Position, column.Id, task.Position, task.Id
+                select new
+                {
+                    project.Id,
+                    project.Name,
+                    project.Description,
+                    project.StartDate,
+                    project.ExpectedEndDate,
+                    project.Status,
+                    TaskId = (Guid?)task.Id,
+                    TaskTitle = task.Title,
+                    ColumnName = column.Name,
+                    AssigneeName = assignee == null ? null : assignee.Name,
+                    TaskPriority = (ScrumBoard.Domain.Tasks.TaskPriority?)task.Priority,
+                    TaskCreatedAt = (DateTimeOffset?)task.CreatedAt,
+                    task.DueDate
+                })
+            .Take(taskRowLimit)
             .ToListAsync(cancellationToken);
+
+        if (rows.Count == 0) return null;
+
+        var projectData = rows[0];
         return new ProjectReportData(
-            project.Id,
-            project.Name,
-            project.Description,
-            project.StartDate,
-            project.ExpectedEndDate,
-            project.Status,
+            projectData.Id,
+            projectData.Name,
+            projectData.Description,
+            projectData.StartDate,
+            projectData.ExpectedEndDate,
+            projectData.Status,
             generatedAt,
-            tasks);
+            rows.Where(row => row.TaskId is not null)
+                .Select(row => new ProjectReportTask(
+                    row.TaskTitle,
+                    row.ColumnName,
+                    row.AssigneeName,
+                    row.TaskPriority!.Value,
+                    row.TaskCreatedAt!.Value,
+                    row.DueDate))
+                .ToList());
     }
 }

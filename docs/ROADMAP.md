@@ -6,9 +6,10 @@ Este roadmap separa endurecimiento necesario de evolución funcional. Las fechas
 
 - API REST versionada con autenticación JWT, autorización por membresía y Problem Details.
 - Proyectos, columnas y tareas con concurrencia optimista mediante ETags.
-- Tablero Angular con filtros y colaboración SignalR.
+- Shell Angular 17/PrimeNG Sakai responsive en español `es-EC`, con filtros, paginación por cursor y colaboración SignalR.
 - Idempotencia para POST autenticados y almacenamiento de respuestas exitosas.
-- Reportes PDF/XLSX y persistencia PostgreSQL mediante EF Core.
+- Reportes PDF/XLSX síncronos con paridad semántica y límite de 10000 tareas; persistencia PostgreSQL mediante EF Core.
+- Playwright sobre el stack sembrado para móvil, autorización, descarga y colaboración SignalR owner/member en contextos aislados.
 - Migraciones desacopladas, imágenes multi-stage, Compose con healthchecks y CI con Trivy.
 
 ## Próximo: operación segura
@@ -23,18 +24,19 @@ Este roadmap separa endurecimiento necesario de evolución funcional. Las fechas
 
 ## Siguiente: calidad y resiliencia
 
-- Incorporar pruebas de contrato OpenAPI y escenarios E2E contra el stack completo.
-- Probar concurrencia, reintentos idempotentes, reconexión SignalR y generación de reportes grandes.
+- Incorporar pruebas de contrato OpenAPI.
+- Ampliar Playwright con reconexión SignalR, conflictos ETag y reintentos idempotentes; la colaboración básica de dos contextos y la descarga filtrada ya están cubiertas.
+- Mantener concurrencia, migraciones y límites de reportes en las suites backend existentes, sin fijar en documentación un conteo de casos.
 - Definir objetivos de cobertura útiles por capa, sin convertir el porcentaje en el único criterio.
 - Añadir backups, restauraciones verificadas y pruebas de actualización/rollback de esquema.
 - Medir límites de tamaño, tiempo y memoria para reportes y cuerpos idempotentes.
 
 ## Después: escalado
 
-- Mover presencia a almacenamiento distribuido y añadir backplane administrado para SignalR.
+- Elegir Azure SignalR Service o Redis para fan-out y mover presencia/versionado a almacenamiento distribuido; un backplane sin presencia distribuida no habilita réplicas seguras.
 - Desacoplar eventos posteriores al commit mediante outbox para evitar pérdida de notificaciones.
-- Incorporar caché de lecturas con invalidación basada en `board_version`.
-- Ejecutar reportes pesados en trabajos asíncronos con descarga temporal autorizada.
+- Evaluar caché de snapshots solo si las métricas justifican su invalidación por `board_version`; actualmente no existe caché dinámica del tablero.
+- Ejecutar reportes pesados en jobs asíncronos con estado, cuotas, almacenamiento temporal privado y descarga expirable autorizada.
 - Evaluar réplicas de lectura y partición solo después de medir cuellos de botella reales.
 
 ## Producto
@@ -43,7 +45,7 @@ Este roadmap separa endurecimiento necesario de evolución funcional. Las fechas
 - Historial de actividad y recuperación de acciones del tablero.
 - Comentarios, etiquetas, adjuntos y notificaciones configurables.
 - Sprints, estimaciones, burndown y límites WIP.
-- Accesibilidad WCAG 2.2 AA, internacionalización y experiencia móvil validada.
+- Auditoría completa WCAG 2.2 AA e internacionalización adicional; la interfaz actual ya tiene layout móvil y localización `es-EC`.
 - Búsqueda de texto completo y filtros guardados por usuario.
 
 ## Fuera de alcance inmediato

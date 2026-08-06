@@ -29,9 +29,12 @@ internal sealed class IdempotencyMiddleware(RequestDelegate next, ILogger<Idempo
             return;
         }
 
-        if (values.Count != 1) throw new BadHttpRequestException("Exactly one Idempotency-Key header is required.");
+        if (values.Count != 1) throw new BadHttpRequestException("Se requiere exactamente una cabecera Idempotency-Key.");
         var key = values[0]?.Trim() ?? string.Empty;
-        if (key.Length is 0 or > 100) throw new BadHttpRequestException("Idempotency-Key must contain between 1 and 100 characters.");
+        if (key.Length is 0 or > 100)
+        {
+            throw new BadHttpRequestException("Idempotency-Key debe contener entre 1 y 100 caracteres.");
+        }
         context.Request.EnableBuffering();
         await using var requestBody = new MemoryStream();
         await context.Request.Body.CopyToAsync(requestBody, context.RequestAborted);
@@ -45,10 +48,10 @@ internal sealed class IdempotencyMiddleware(RequestDelegate next, ILogger<Idempo
                 Convert.FromHexString(reservation.RequestHash),
                 Convert.FromHexString(hash)))
         {
-            throw new ConflictException("idempotency_key_reused", "The idempotency key was already used with another request.");
+            throw new ConflictException("idempotency_key_reused", "La clave de idempotencia ya se usó con otra solicitud.");
         }
         if (reservation.State is IdempotencyReservationState.InProgress)
-            throw new ConflictException("request_in_progress", "A request with this idempotency key is still being processed.");
+            throw new ConflictException("request_in_progress", "Todavía se está procesando una solicitud con esta clave de idempotencia.");
         if (reservation.State is IdempotencyReservationState.Completed)
         {
             await ReplayAsync(context, reservation.Response!);

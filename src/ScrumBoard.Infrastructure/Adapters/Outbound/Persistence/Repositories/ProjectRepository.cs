@@ -30,10 +30,18 @@ internal sealed class ProjectRepository(ScrumBoardDbContext dbContext) : IProjec
         var ascending = criteria.Direction is SortDirection.Ascending;
         projects = criteria.Sort switch
         {
-            ProjectSortField.Name => ascending ? projects.OrderBy(item => item.project.Name) : projects.OrderByDescending(item => item.project.Name),
-            ProjectSortField.StartDate => ascending ? projects.OrderBy(item => item.project.StartDate) : projects.OrderByDescending(item => item.project.StartDate),
-            ProjectSortField.Status => ascending ? projects.OrderBy(item => item.project.Status) : projects.OrderByDescending(item => item.project.Status),
-            _ => ascending ? projects.OrderBy(item => item.project.UpdatedAt) : projects.OrderByDescending(item => item.project.UpdatedAt)
+            ProjectSortField.Name => ascending
+                ? projects.OrderBy(item => item.project.Name).ThenBy(item => item.project.Id)
+                : projects.OrderByDescending(item => item.project.Name).ThenByDescending(item => item.project.Id),
+            ProjectSortField.StartDate => ascending
+                ? projects.OrderBy(item => item.project.StartDate).ThenBy(item => item.project.Id)
+                : projects.OrderByDescending(item => item.project.StartDate).ThenByDescending(item => item.project.Id),
+            ProjectSortField.Status => ascending
+                ? projects.OrderBy(item => item.project.Status).ThenBy(item => item.project.Id)
+                : projects.OrderByDescending(item => item.project.Status).ThenByDescending(item => item.project.Id),
+            _ => ascending
+                ? projects.OrderBy(item => item.project.UpdatedAt).ThenBy(item => item.project.Id)
+                : projects.OrderByDescending(item => item.project.UpdatedAt).ThenByDescending(item => item.project.Id)
         };
 
         var items = await projects
@@ -57,10 +65,6 @@ internal sealed class ProjectRepository(ScrumBoardDbContext dbContext) : IProjec
         dbContext.Projects.Include(project => project.Members)
             .SingleOrDefaultAsync(project => project.Id == projectId, cancellationToken);
 
-    public Task<bool> IsMemberAsync(Guid projectId, Guid userId, CancellationToken cancellationToken) =>
-        dbContext.ProjectMembers.AsNoTracking()
-            .AnyAsync(member => member.ProjectId == projectId && member.UserId == userId, cancellationToken);
-
     public Task<ProjectDetails?> GetDetailsAsync(Guid projectId, Guid userId, CancellationToken cancellationToken) =>
         (from project in dbContext.Projects.AsNoTracking()
          join membership in dbContext.ProjectMembers.AsNoTracking() on project.Id equals membership.ProjectId
@@ -71,5 +75,13 @@ internal sealed class ProjectRepository(ScrumBoardDbContext dbContext) : IProjec
         .SingleOrDefaultAsync(cancellationToken);
 
     public void Add(Project project) => dbContext.Projects.Add(project);
-    public void Remove(Project project) => dbContext.Projects.Remove(project);
+
+    public async Task RemoveAsync(Project project, CancellationToken cancellationToken)
+    {
+        var tasks = await dbContext.Tasks
+            .Where(task => task.ProjectId == project.Id)
+            .ToListAsync(cancellationToken);
+        dbContext.Tasks.RemoveRange(tasks);
+        dbContext.Projects.Remove(project);
+    }
 }

@@ -1,8 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using ScrumBoard.Application.Models.Tasks;
+using ScrumBoard.Api.Adapters.Inbound.Http.Contracts;
 using ScrumBoard.Application.Ports.Inbound.Reports;
-using ScrumBoard.Domain.Tasks;
 
 namespace ScrumBoard.Api.Adapters.Inbound.Http;
 
@@ -14,13 +13,10 @@ public sealed class ReportsController(IReportUseCase reports) : ControllerBase
     [HttpGet]
     public async Task<IActionResult> Generate(
         Guid projectId,
-        [FromQuery] string format,
-        [FromQuery] Guid? assigneeId,
-        [FromQuery] TaskPriority? priority,
-        [FromQuery] string? search,
+        [FromQuery] ReportQueryRequest query,
         CancellationToken cancellationToken)
     {
-        var report = await reports.GenerateAsync(projectId, format, new TaskFilter(assigneeId, priority, search), cancellationToken);
+        var report = await reports.GenerateAsync(projectId, query.Format, query.ToFilter(), cancellationToken);
         return File(report.Content, report.MediaType, report.FileName);
     }
 }

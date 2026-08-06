@@ -67,6 +67,52 @@ jobs:
       - name: Production build
         run: npm run build -- --configuration production
 
+  e2e:
+    name: Compose Playwright E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Install Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Start and wait for the Compose stack
+        run: docker compose --env-file .env.example up --build --detach --wait --wait-timeout 300
+      - name: Run serialized demo E2E suite
+        working-directory: frontend
+        env:
+          CI: true
+          E2E_DEMO: true
+        run: npx playwright test --project=chromium --workers=1
+      - name: Collect Compose logs
+        if: always()
+        run: |
+          mkdir -p artifacts/e2e
+          docker compose --env-file .env.example logs --no-color > artifacts/e2e/compose.log
+      - name: Upload E2E diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-e2e-results
+          path: |
+            artifacts/e2e/compose.log
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Stop Compose stack
+        if: always()
+        run: docker compose --env-file .env.example down --remove-orphans
+
   containers:
     name: Docker build and Trivy
     runs-on: ubuntu-24.04

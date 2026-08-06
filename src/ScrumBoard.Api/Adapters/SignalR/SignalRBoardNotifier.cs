@@ -44,6 +44,3 @@ internal sealed class SignalRBoardNotifier(
         }
     }
 }
-
-internal sealed record ColumnDeletedPayload(Guid ColumnId, bool Deleted, long BoardVersion);
-internal sealed record TaskDeletedPayload(Guid TaskId, long BoardVersion);

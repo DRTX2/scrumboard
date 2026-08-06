@@ -1,4 +1,5 @@
 using ScrumBoard.Application.Context;
+using ScrumBoard.Application.Errors;
 using ScrumBoard.Application.Models.Boards;
 using ScrumBoard.Application.Models.Common;
 using ScrumBoard.Application.Models.Projects;
@@ -54,7 +55,7 @@ internal sealed class FakeProjectRepository : IProjectRepository
     public Guid? LastListUserId { get; private set; }
     public Project? Added { get; private set; }
     public Project? Removed { get; private set; }
-    public int MembershipCheckCount { get; private set; }
+    public int FindCount { get; private set; }
     public Func<Guid, Guid, ProjectDetails?>? DetailsFactory { get; init; }
 
     public Task<PagedResult<ProjectSummary>> ListAsync(
@@ -67,13 +68,10 @@ internal sealed class FakeProjectRepository : IProjectRepository
         return Task.FromResult(new PagedResult<ProjectSummary>([], criteria.Page, criteria.PageSize, 0));
     }
 
-    public Task<Project?> FindAsync(Guid projectId, CancellationToken cancellationToken) =>
-        Task.FromResult(Projects.GetValueOrDefault(projectId));
-
-    public Task<bool> IsMemberAsync(Guid projectId, Guid userId, CancellationToken cancellationToken)
+    public Task<Project?> FindAsync(Guid projectId, CancellationToken cancellationToken)
     {
-        MembershipCheckCount++;
-        return Task.FromResult(Projects.GetValueOrDefault(projectId)?.Members.Any(member => member.UserId == userId) is true);
+        FindCount++;
+        return Task.FromResult(Projects.GetValueOrDefault(projectId));
     }
 
     public Task<ProjectDetails?> GetDetailsAsync(Guid projectId, Guid userId, CancellationToken cancellationToken) =>
@@ -85,7 +83,11 @@ internal sealed class FakeProjectRepository : IProjectRepository
         Projects[project.Id] = project;
     }
 
-    public void Remove(Project project) => Removed = project;
+    public Task RemoveAsync(Project project, CancellationToken cancellationToken)
+    {
+        Removed = project;
+        return Task.CompletedTask;
+    }
 }
 
 internal sealed class FakeBoardRepository : IBoardRepository
@@ -93,25 +95,60 @@ internal sealed class FakeBoardRepository : IBoardRepository
     public List<BoardColumn> Columns { get; } = [];
     public List<TaskItem> Tasks { get; } = [];
     public BoardSnapshot? Snapshot { get; set; }
+    public TaskPage? Page { get; set; }
     public TaskFilter? LastFilter { get; private set; }
+    public int LastTaskLimit { get; private set; }
+    public long? LastAfterPosition { get; private set; }
+    public Guid? LastAfterTaskId { get; private set; }
     public bool ColumnContainsTasks { get; set; }
     public BoardColumn? AddedColumn { get; private set; }
     public BoardColumn? RemovedColumn { get; private set; }
     public TaskItem? AddedTask { get; private set; }
     public TaskItem? RemovedTask { get; private set; }
+    public bool IsVisible { get; set; } = true;
+    public int PageQueryCount { get; private set; }
+    public int FullTaskQueryCount { get; private set; }
+    public int MaxTaskPositionQueryCount { get; private set; }
 
     public Task<BoardSnapshot?> GetSnapshotAsync(
         Guid projectId,
         Guid userId,
         TaskFilter filter,
+        int taskLimit,
         CancellationToken cancellationToken)
     {
         LastFilter = filter;
-        return Task.FromResult(Snapshot);
+        LastTaskLimit = taskLimit;
+        return Task.FromResult(IsVisible ? Snapshot : null);
     }
 
-    public Task<List<BoardMember>> GetMembersAsync(Guid projectId, CancellationToken cancellationToken) =>
-        Task.FromResult(Snapshot?.Members.ToList() ?? []);
+    public Task<TaskPageReadResult?> GetTaskPageAsync(
+        Guid projectId,
+        Guid columnId,
+        Guid userId,
+        TaskFilter filter,
+        int limit,
+        long? afterPosition,
+        Guid? afterTaskId,
+        long expectedBoardVersion,
+        CancellationToken cancellationToken)
+    {
+        PageQueryCount++;
+        if (!IsVisible) return Task.FromResult<TaskPageReadResult?>(null);
+        LastFilter = filter;
+        LastTaskLimit = limit;
+        LastAfterPosition = afterPosition;
+        LastAfterTaskId = afterTaskId;
+        if (Page is not null && Page.BoardVersion != expectedBoardVersion)
+        {
+            throw new OptimisticConcurrencyException("version_mismatch", "El recurso cambió después de ser leído.");
+        }
+
+        return Task.FromResult<TaskPageReadResult?>(new TaskPageReadResult(Page));
+    }
+
+    public Task<List<BoardMember>?> GetMembersAsync(Guid projectId, Guid userId, CancellationToken cancellationToken) =>
+        Task.FromResult<List<BoardMember>?>(IsVisible ? Snapshot?.Members.ToList() ?? [] : null);
 
     public Task<List<BoardColumn>> GetColumnsAsync(Guid projectId, CancellationToken cancellationToken) =>
         Task.FromResult(Columns.Where(column => column.ProjectId == projectId).OrderBy(column => column.Position).ToList());
@@ -122,13 +159,55 @@ internal sealed class FakeBoardRepository : IBoardRepository
     public Task<bool> ColumnContainsTasksAsync(Guid columnId, CancellationToken cancellationToken) =>
         Task.FromResult(ColumnContainsTasks);
 
+    public Task<long?> GetMaxTaskPositionAsync(
+        Guid projectId,
+        Guid columnId,
+        Guid? excludedTaskId,
+        CancellationToken cancellationToken)
+    {
+        MaxTaskPositionQueryCount++;
+        return Task.FromResult(Tasks
+            .Where(task => task.ProjectId == projectId && task.ColumnId == columnId && task.Id != excludedTaskId)
+            .Select(task => (long?)task.Position)
+            .Max());
+    }
+
+    public Task<TaskOrderNeighbors?> GetTaskOrderNeighborsAsync(
+        Guid projectId,
+        Guid columnId,
+        Guid excludedTaskId,
+        Guid? beforeTaskId,
+        Guid? afterTaskId,
+        CancellationToken cancellationToken)
+    {
+        var siblings = Tasks
+            .Where(task => task.ProjectId == projectId && task.ColumnId == columnId && task.Id != excludedTaskId)
+            .OrderBy(task => task.Position).ThenBy(task => task.Id).ToList();
+        var beforeIndex = beforeTaskId is null ? -1 : siblings.FindIndex(task => task.Id == beforeTaskId);
+        var afterIndex = afterTaskId is null ? -1 : siblings.FindIndex(task => task.Id == afterTaskId);
+        if (beforeTaskId is not null && beforeIndex < 0 || afterTaskId is not null && afterIndex < 0 ||
+            beforeTaskId is not null && afterTaskId is not null && afterIndex + 1 != beforeIndex)
+        {
+            return Task.FromResult<TaskOrderNeighbors?>(null);
+        }
+
+        long? previous = afterIndex >= 0 ? siblings[afterIndex].Position : beforeIndex > 0 ? siblings[beforeIndex - 1].Position : null;
+        long? next = beforeIndex >= 0 ? siblings[beforeIndex].Position : afterIndex >= 0 && afterIndex + 1 < siblings.Count
+            ? siblings[afterIndex + 1].Position
+            : null;
+        return Task.FromResult<TaskOrderNeighbors?>(new TaskOrderNeighbors(previous, next));
+    }
+
     public Task<List<TaskItem>> GetTasksAsync(
         Guid projectId,
         Guid columnId,
         Guid? excludedTaskId,
-        CancellationToken cancellationToken) =>
-        Task.FromResult(Tasks.Where(task => task.ProjectId == projectId && task.ColumnId == columnId && task.Id != excludedTaskId)
-            .OrderBy(task => task.Position).ToList());
+        CancellationToken cancellationToken)
+    {
+        FullTaskQueryCount++;
+        return Task.FromResult(Tasks.Where(task => task.ProjectId == projectId && task.ColumnId == columnId && task.Id != excludedTaskId)
+            .OrderBy(task => task.Position).ThenBy(task => task.Id).ToList());
+    }
 
     public Task<TaskItem?> FindTaskAsync(Guid projectId, Guid taskId, CancellationToken cancellationToken) =>
         Task.FromResult(Tasks.SingleOrDefault(task => task.ProjectId == projectId && task.Id == taskId));
@@ -154,9 +233,16 @@ internal sealed class FakeUserRepository : IUserRepository
         Task.FromResult(User?.Id == id ? User : null);
 }
 
-internal sealed class StubPasswordHasher(bool result) : IPasswordHasher
+internal sealed class TrackingPasswordHasher(bool result, string dummyHash = "dummy-hash") : IPasswordHasher
 {
-    public bool Verify(string password, string encodedHash) => result;
+    public string DummyHash { get; } = dummyHash;
+    public List<(string Password, string EncodedHash)> Verifications { get; } = [];
+
+    public bool Verify(string password, string encodedHash)
+    {
+        Verifications.Add((password, encodedHash));
+        return result;
+    }
 }
 
 internal sealed class TrackingTokenIssuer(IssuedToken token) : ITokenIssuer
@@ -174,18 +260,35 @@ internal sealed class FakeReportDataSource : IReportDataSource
 {
     public ProjectReportData? Result { get; set; }
     public TaskFilter? LastFilter { get; private set; }
+    public Guid? LastUserId { get; private set; }
+    public int? LastTaskRowLimit { get; private set; }
+    public CancellationToken LastCancellationToken { get; private set; }
     public int CallCount { get; private set; }
 
     public Task<ProjectReportData?> GetAsync(
         Guid projectId,
+        Guid userId,
         TaskFilter filter,
         DateTimeOffset generatedAt,
+        int taskRowLimit,
         CancellationToken cancellationToken)
     {
         CallCount++;
+        LastUserId = userId;
         LastFilter = filter;
+        LastTaskRowLimit = taskRowLimit;
+        LastCancellationToken = cancellationToken;
         return Task.FromResult(Result);
     }
+}
+
+internal sealed class CountOnlyReadOnlyList<T>(int count) : IReadOnlyList<T>
+{
+    public int Count { get; } = count;
+    public T this[int index] => throw new NotSupportedException();
+
+    public IEnumerator<T> GetEnumerator() => throw new NotSupportedException();
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
 }
 
 internal sealed class StubReportExporter(

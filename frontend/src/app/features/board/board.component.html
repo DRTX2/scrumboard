@@ -6,52 +6,66 @@
       <p>{{ project.description || 'Planifica y mueve el trabajo hasta completarlo.' }}</p>
     </div>
     <div class="header-actions">
-      <div class="presence" pTooltip="Usuarios conectados ahora">
-        <span class="live-dot"></span>
+      <div class="presence" [class]="'presence state-' + realtimeState" [pTooltip]="realtimeLabel()" role="status">
+        <span class="live-dot" aria-hidden="true"></span>
         @if (connectedUsers.length) {
           <p-avatarGroup>@for (user of connectedUsers.slice(0, 4); track user.id) { <p-avatar [label]="initials(user)" shape="circle" /> }</p-avatarGroup>
         }
-        <strong>{{ connectedCount }} en línea</strong>
+        <strong>{{ realtimeState === 'connected' ? connectedCount + ' en línea' : realtimeLabel() }}</strong>
       </div>
-      <p-button icon="pi pi-file-pdf" severity="secondary" [outlined]="true" [loading]="downloading === 'pdf'" pTooltip="Descargar PDF" (onClick)="download('pdf')" />
-      <p-button icon="pi pi-file-excel" severity="secondary" [outlined]="true" [loading]="downloading === 'xlsx'" pTooltip="Descargar Excel" (onClick)="download('xlsx')" />
-      <p-button label="Nueva columna" icon="pi pi-plus" (onClick)="openNewColumn()" />
+      <p-button icon="pi pi-file-pdf" severity="secondary" [outlined]="true" [loading]="downloading === 'pdf'" [disabled]="downloading !== null" ariaLabel="Descargar reporte PDF" pTooltip="Descargar PDF" (onClick)="download('pdf')" />
+      <p-button icon="pi pi-file-excel" severity="secondary" [outlined]="true" [loading]="downloading === 'xlsx'" [disabled]="downloading !== null" ariaLabel="Descargar reporte Excel" pTooltip="Descargar Excel" (onClick)="download('xlsx')" />
+      @if (canManageColumns) { <p-button label="Nueva columna" icon="pi pi-plus" (onClick)="openNewColumn()" /> }
     </div>
   </header>
 
   <div class="filters surface-card">
-    <span class="p-input-icon-left"><i class="pi pi-search"></i><input #taskSearch pInputText placeholder="Buscar tareas" [value]="filters.search" (input)="filters.search = taskSearch.value"></span>
-    <p-dropdown [options]="members" optionLabel="name" optionValue="id" placeholder="Responsable" [showClear]="true" [(ngModel)]="filters.assigneeId" />
-    <p-dropdown [options]="priorities" optionLabel="label" optionValue="value" placeholder="Prioridad" [showClear]="true" [(ngModel)]="filters.priority" />
+    <span class="p-input-icon-left"><i class="pi pi-search"></i><input #taskSearch pInputText aria-label="Buscar tareas" placeholder="Buscar tareas" [value]="filters.search" (input)="searchChanged(taskSearch.value)"></span>
+    <p-dropdown ariaLabel="Filtrar por responsable" [options]="members" optionLabel="name" optionValue="id" placeholder="Responsable" [showClear]="true" [ngModel]="filters.assigneeId" (onChange)="filterChanged('assigneeId', $event.value)" />
+    <p-dropdown ariaLabel="Filtrar por prioridad" [options]="priorities" optionLabel="label" optionValue="value" placeholder="Prioridad" [showClear]="true" [ngModel]="filters.priority" (onChange)="filterChanged('priority', $event.value)" />
     @if (filtersActive) { <span class="filter-note"><i class="pi pi-info-circle"></i> Limpia los filtros para reordenar</span> }
   </div>
 
+  @if (moveMessage) { <div class="board-notice" role="alert"><i class="pi pi-info-circle" aria-hidden="true"></i><span>{{ moveMessage }}</span><button type="button" aria-label="Cerrar aviso" (click)="moveMessage = ''"><i class="pi pi-times" aria-hidden="true"></i></button></div> }
+  @if (loadError && columns.length) { <div class="board-notice error-notice" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>{{ loadError }}</span><button type="button" class="retry-link" (click)="load(false, true)">Reintentar</button></div> }
+
   @if (loading) {
-    <div class="board-skeleton">@for (item of [1,2,3]; track item) { <p-skeleton width="19rem" height="28rem" borderRadius="14px" /> }</div>
+    <div class="board-skeleton" role="status" aria-label="Cargando tablero">@for (item of [1,2,3]; track item) { <p-skeleton width="19rem" height="28rem" borderRadius="14px" /> }</div>
+  } @else if (loadError && !columns.length) {
+    <div class="page-error" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><h2>No pudimos cargar el tablero</h2><p>{{ loadError }}</p><p-button label="Reintentar" icon="pi pi-refresh" [outlined]="true" (onClick)="load()" /></div>
   } @else if (!columns.length) {
-    <div class="empty-board surface-card"><i class="pi pi-table"></i><h2>Tu tablero está listo</h2><p>Crea la primera columna para comenzar.</p><p-button label="Crear columna" icon="pi pi-plus" (onClick)="openNewColumn()" /></div>
+    <div class="empty-board surface-card"><i class="pi pi-table"></i><h2>Tu tablero está listo</h2><p>{{ canManageColumns ? 'Crea la primera columna para comenzar.' : 'El propietario aún no ha creado columnas.' }}</p>@if (canManageColumns) { <p-button label="Crear columna" icon="pi pi-plus" (onClick)="openNewColumn()" /> }</div>
   } @else {
-    <div class="columns" cdkDropList cdkDropListOrientation="horizontal" [cdkDropListData]="columns" (cdkDropListDropped)="dropColumn($event)">
+    <div class="columns" cdkDropList cdkDropListOrientation="horizontal" [cdkDropListData]="columns" [cdkDropListDisabled]="movePending || !canManageColumns" (cdkDropListDropped)="dropColumn($event)">
       @for (column of columns; track column.id) {
-        <article class="board-column" cdkDrag>
+        <article class="board-column" cdkDrag [cdkDragDisabled]="movePending || !canManageColumns">
           <div class="column-placeholder" *cdkDragPlaceholder></div>
           <header>
-            <div cdkDragHandle class="column-drag" pTooltip="Arrastrar columna"><i class="pi pi-ellipsis-v"></i><i class="pi pi-ellipsis-v"></i></div>
-            <h2>{{ column.name }}</h2><span>{{ visibleTasks(column).length }}</span>
-            <button pButton class="p-button-text p-button-rounded" icon="pi pi-pencil" aria-label="Editar columna" (click)="openEditColumn(column)"></button>
-            <button pButton class="p-button-text p-button-rounded p-button-danger" icon="pi pi-trash" aria-label="Eliminar columna" (click)="confirmDeleteColumn(column)"></button>
+            @if (canManageColumns) { <div cdkDragHandle class="column-drag" pTooltip="Arrastrar columna"><i class="pi pi-ellipsis-v"></i><i class="pi pi-ellipsis-v"></i></div> }
+            <h2>{{ column.name }}</h2><span [attr.aria-label]="column.taskTotal + ' tareas'">{{ column.taskTotal }}</span>
+            @if (canManageColumns) {
+              <button pButton class="p-button-text p-button-rounded" icon="pi pi-pencil" aria-label="Editar columna" (click)="openEditColumn(column)"></button>
+              <button pButton class="p-button-text p-button-rounded p-button-danger" icon="pi pi-trash" aria-label="Eliminar columna" (click)="confirmDeleteColumn(column)"></button>
+            }
           </header>
-          <div class="task-list" [id]="'tasks-' + column.id" cdkDropList [cdkDropListData]="column.tasks" [cdkDropListConnectedTo]="taskListIds" [cdkDropListDisabled]="filtersActive" (cdkDropListDropped)="dropTask($event)">
-            @for (task of visibleTasks(column); track task.id) {
-              <article class="task-card surface-card" cdkDrag (dblclick)="openEditTask(task)">
+          <div class="task-list" [id]="'tasks-' + column.id" cdkDropList [cdkDropListData]="column.tasks" [cdkDropListConnectedTo]="taskListIds" [cdkDropListDisabled]="filtersActive || column.hasMoreTasks || movePending" (scroll)="onTaskListScroll(column, $event)" (cdkDropListDropped)="dropTask($event)">
+            @for (task of column.tasks; track task.id) {
+              <article class="task-card surface-card" cdkDrag [cdkDragDisabled]="movePending || filtersActive || column.hasMoreTasks" (dblclick)="openEditTask(task)">
                 <div class="task-placeholder" *cdkDragPlaceholder></div>
                 <div class="task-top"><p-tag [value]="priorityLabel(task.priority)" [severity]="prioritySeverity(task.priority)" /><button pButton class="p-button-text p-button-rounded" icon="pi pi-pencil" aria-label="Editar tarea" (click)="openEditTask(task)"></button><button pButton class="p-button-text p-button-rounded p-button-danger" icon="pi pi-times" aria-label="Eliminar tarea" (click)="confirmDeleteTask(task)"></button></div>
                 <h3>{{ task.title }}</h3>
                 @if (task.description) { <p>{{ task.description }}</p> }
-                <footer><p-avatar [label]="initials(task.assignee)" shape="circle" [pTooltip]="task.assignee?.name || 'Sin responsable'" />@if (task.dueDate) { <span><i class="pi pi-calendar"></i>{{ task.dueDate | date:'dd MMM' }}</span> }</footer>
+                <footer><p-avatar [label]="initials(task.assignee)" shape="circle" [pTooltip]="task.assignee?.name || 'Sin responsable'" />@if (task.dueDate) { <span><i class="pi pi-calendar"></i>{{ task.dueDate | date:'dd/MM/yyyy' }}</span> }</footer>
               </article>
             } @empty {
               <div class="column-empty">{{ filtersActive ? 'Sin coincidencias' : 'Arrastra tareas aquí' }}</div>
+            }
+            @if (loadingColumnIds.has(column.id)) {
+              <div class="column-page-status" role="status"><i class="pi pi-spinner pi-spin" aria-hidden="true"></i><span class="sr-only">Cargando más tareas</span></div>
+            } @else if (failedColumnIds.has(column.id)) {
+              <div class="column-page-error" role="alert"><span>No se pudieron cargar más tareas.</span><button type="button" (click)="loadMoreTasks(column)">Reintentar</button></div>
+            } @else if (column.hasMoreTasks) {
+              <button type="button" class="load-more" pTooltip="Carga todas las tareas para habilitar el reordenamiento" (click)="loadMoreTasks(column)">Cargar más <small>{{ column.tasks.length }} de {{ column.taskTotal }}</small><span class="sr-only"> tareas de {{ column.name }}</span></button>
             }
           </div>
           <button class="add-task" (click)="openNewTask(column)"><i class="pi pi-plus"></i> Agregar tarea</button>
@@ -62,14 +76,14 @@
 </section>
 
 <p-dialog [(visible)]="columnDialog" [modal]="true" [header]="selectedColumn ? 'Editar columna' : 'Nueva columna'" [style]="{ width: '28rem' }" [draggable]="false" [closable]="!saving" [closeOnEscape]="!saving">
-  <form class="dialog-form" [formGroup]="columnForm" (ngSubmit)="saveColumn()"><label for="column-name">Nombre</label><input id="column-name" pInputText formControlName="name" autofocus>@if (columnForm.controls.name.touched && columnForm.controls.name.invalid) { <small>El nombre es obligatorio.</small> }<div class="dialog-actions"><p-button label="Cancelar" styleClass="p-button-text" [disabled]="saving" (onClick)="columnDialog = false" /><p-button type="submit" label="Guardar" [loading]="saving" /></div></form>
+  <form class="dialog-form" [formGroup]="columnForm" (ngSubmit)="saveColumn()"><label for="column-name">Nombre</label><input id="column-name" pInputText formControlName="name" maxlength="100" autofocus>@if (columnForm.controls.name.touched && columnForm.controls.name.invalid) { <small>Escribe un nombre de máximo 100 caracteres; no puede contener solo espacios.</small> }<div class="dialog-actions"><p-button label="Cancelar" styleClass="p-button-text" [disabled]="saving" (onClick)="columnDialog = false" /><p-button type="submit" label="Guardar" [loading]="saving" /></div></form>
 </p-dialog>
 
 <p-dialog [(visible)]="taskDialog" [modal]="true" [header]="selectedTask ? 'Editar tarea' : 'Nueva tarea'" [style]="{ width: '36rem' }" [draggable]="false" [closable]="!saving" [closeOnEscape]="!saving">
   <form class="dialog-form task-form" [formGroup]="taskForm" (ngSubmit)="saveTask()">
-    <label for="task-title">Título</label><input id="task-title" pInputText formControlName="title" autofocus>@if (taskForm.controls.title.touched && taskForm.controls.title.invalid) { <small>El título es obligatorio.</small> }
-    <label for="task-description">Descripción</label><textarea id="task-description" pInputText formControlName="description" rows="4"></textarea>
-    <div class="form-grid"><div><label for="task-priority">Prioridad</label><p-dropdown inputId="task-priority" formControlName="priority" [options]="priorities" appendTo="body" /></div><div><label for="task-assignee">Responsable</label><p-dropdown inputId="task-assignee" formControlName="assigneeId" [options]="members" optionLabel="name" optionValue="id" placeholder="Sin asignar" [showClear]="true" appendTo="body" /></div></div>
+    <label for="task-title">Título</label><input id="task-title" pInputText formControlName="title" maxlength="200" autofocus>@if (taskForm.controls.title.touched && taskForm.controls.title.invalid) { <small>Escribe un título de máximo 200 caracteres; no puede contener solo espacios.</small> }
+    <label for="task-description">Descripción</label><textarea id="task-description" pInputText formControlName="description" rows="4" maxlength="4000"></textarea>
+    <div class="form-grid"><div><label for="task-priority">Prioridad</label><p-dropdown inputId="task-priority" formControlName="priority" [options]="priorities" appendTo="body" /></div><div><label for="task-assignee">Responsable</label><p-dropdown inputId="task-assignee" formControlName="assigneeId" [options]="members" optionLabel="name" optionValue="id" placeholder="Selecciona un responsable" appendTo="body" />@if (taskForm.controls.assigneeId.touched && taskForm.controls.assigneeId.invalid) { <small>Selecciona un responsable.</small> }</div></div>
     <label for="task-due">Fecha límite</label><input id="task-due" pInputText type="date" formControlName="dueDate">
     <div class="dialog-actions"><p-button label="Cancelar" styleClass="p-button-text" [disabled]="saving" (onClick)="taskDialog = false" /><p-button type="submit" label="Guardar" [loading]="saving" /></div>
   </form>

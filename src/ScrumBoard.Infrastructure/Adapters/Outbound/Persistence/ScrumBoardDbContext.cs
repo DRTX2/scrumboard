@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using ScrumBoard.Application.Errors;
 using ScrumBoard.Application.Ports.Outbound;
 using ScrumBoard.Domain.Boards;
@@ -35,7 +36,17 @@ public sealed class ScrumBoardDbContext(DbContextOptions<ScrumBoardDbContext> op
         }
         catch (DbUpdateConcurrencyException exception)
         {
-            throw new OptimisticConcurrencyException("concurrent_update", "The resource has changed.", exception);
+            throw new OptimisticConcurrencyException("concurrent_update", "El recurso cambió durante la operación.", exception);
+        }
+        catch (DbUpdateException exception) when (
+            exception.InnerException is PostgresException
+            {
+                SqlState: PostgresErrorCodes.ForeignKeyViolation,
+                ConstraintName: { } constraintName
+            } && constraintName.StartsWith("FK_tasks_board_columns", StringComparison.Ordinal) &&
+            ChangeTracker.Entries<BoardColumn>().Any(entry => entry.State is EntityState.Deleted))
+        {
+            throw new ConflictException("column_not_empty", "No se puede eliminar una columna que contiene tareas.", exception);
         }
     }
 }
