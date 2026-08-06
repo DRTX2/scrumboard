@@ -1,13 +1,19 @@
 import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
+import { Router } from '@angular/router';
 import { MessageService } from 'primeng/api';
-import { catchError, throwError } from 'rxjs';
+import { catchError, from, mergeMap, throwError } from 'rxjs';
 import { AuthService } from './auth.service';
-import { ProblemDetails, problemMessage } from '../http/problem-details';
+import { httpProblemMessage } from '../http/problem-details';
+import { RuntimeConfigService } from '../config/runtime-config.service';
 
 export const authInterceptor: HttpInterceptorFn = (request, next) => {
   const auth = inject(AuthService);
   const messages = inject(MessageService);
+  const config = inject(RuntimeConfigService);
+  const router = inject(Router);
+  if (!config.isApiUrl(request.url) || config.isEndpointUrl('sessions', request.url)) return next(request);
+
   const token = auth.token();
   let headers = request.headers;
   if (token) headers = headers.set('Authorization', `Bearer ${token}`);
@@ -17,20 +23,20 @@ export const authInterceptor: HttpInterceptorFn = (request, next) => {
 
   return next(request.clone({ headers })).pipe(
     catchError((error: HttpErrorResponse) => {
-      const problem = error.error as ProblemDetails;
       if (error.status === 401) {
-        auth.logout(true);
-        messages.add({ severity: 'warn', summary: 'Sesión finalizada', detail: 'Inicia sesión nuevamente.' });
-      } else if (error.status !== 0) {
+        if (auth.token() === token && auth.expireSession(router.url)) {
+          messages.add({ severity: 'warn', summary: 'Sesión finalizada', detail: 'Inicia sesión nuevamente para continuar.' });
+        }
+        return throwError(() => error);
+      }
+      return from(httpProblemMessage(error)).pipe(mergeMap(detail => {
         messages.add({
           severity: 'error',
-          summary: error.status === 412 ? 'Datos desactualizados' : 'No se pudo completar la operación',
-          detail: problemMessage(problem, error.message)
+          summary: error.status === 0 ? 'Sin conexión' : error.status === 412 ? 'Datos desactualizados' : 'No se pudo completar la operación',
+          detail
         });
-      } else {
-        messages.add({ severity: 'error', summary: 'Sin conexión', detail: 'No se pudo contactar con el servidor.' });
-      }
-      return throwError(() => error);
+        return throwError(() => error);
+      }));
     })
   );
 };

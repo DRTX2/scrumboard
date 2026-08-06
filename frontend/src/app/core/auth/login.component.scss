@@ -10,5 +10,7 @@ h2 { margin: 0; font-size: 2rem; } form > p { color: var(--text-color-secondary)
 label { display: block; margin: 1.1rem 0 .5rem; font-weight: 600; font-size: .88rem; }
 input, p-password, ::ng-deep .p-password-input, ::ng-deep .p-button { width: 100%; }
 small { display: block; margin-top: .35rem; color: var(--red-500); }
+.login-error { display: flex; align-items: center; gap: .5rem; padding: .75rem; border-radius: 8px; color: #991b1b; background: #fee2e2; font-size: .85rem; }
 .mobile-logo { display: none; color: #12355d; font-weight: 700; margin-bottom: 2rem; }
-@media (max-width: 800px) { .login-page { grid-template-columns: 1fr; background: #f7f9fc; } .login-brand { display: none; } .mobile-logo { display: block; } }
+@media (max-width: 800px) { .login-page { grid-template-columns: 1fr; background: #f7f9fc; } .login-brand { display: none; } .mobile-logo { display: block; } .login-panel { align-items: start; padding-top: clamp(1rem, 8vh, 5rem); } }
+@media (max-width: 375px) { .login-panel { padding: .75rem; } form { padding: 1.25rem; border-radius: 14px; } h2 { font-size: 1.65rem; } form > p { margin-bottom: 1.25rem; } }

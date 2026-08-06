@@ -8,6 +8,7 @@
     "board": "/v1/projects/{projectId}/board",
     "columns": "/v1/projects/{projectId}/columns",
     "column": "/v1/projects/{projectId}/columns/{columnId}",
+    "columnTasks": "/v1/projects/{projectId}/columns/{columnId}/tasks",
     "tasks": "/v1/projects/{projectId}/tasks",
     "task": "/v1/projects/{projectId}/tasks/{taskId}",
     "members": "/v1/projects/{projectId}/members",

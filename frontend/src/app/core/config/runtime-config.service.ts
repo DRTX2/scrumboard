@@ -36,6 +36,30 @@ export class RuntimeConfigService {
     return `${this.config.apiBaseUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
   }
 
+  isApiUrl(url: string): boolean {
+    if (!this.value || url.startsWith('assets/') || url.startsWith('/assets/')) return false;
+    try {
+      const origin = globalThis.location?.origin ?? 'http://localhost';
+      const requestUrl = new URL(url, origin);
+      const apiUrl = new URL(this.value.apiBaseUrl, origin);
+      const apiPath = apiUrl.pathname.replace(/\/$/, '');
+      return requestUrl.origin === apiUrl.origin &&
+        (requestUrl.pathname === apiPath || requestUrl.pathname.startsWith(`${apiPath}/`));
+    } catch {
+      return false;
+    }
+  }
+
+  isEndpointUrl(name: string, url: string): boolean {
+    if (!this.value) return false;
+    try {
+      const origin = globalThis.location?.origin ?? 'http://localhost';
+      return new URL(url, origin).href === new URL(this.endpoint(name), origin).href;
+    } catch {
+      return false;
+    }
+  }
+
   get hubUrl(): string {
     if (/^https?:\/\//i.test(this.config.hubUrl)) return this.config.hubUrl;
     return `${this.config.apiBaseUrl.replace(/\/api\/?$/, '')}/${this.config.hubUrl.replace(/^\//, '')}`;

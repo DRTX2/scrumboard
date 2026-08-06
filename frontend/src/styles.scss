@@ -7,4 +7,11 @@ button, input, textarea { font: inherit; }
 .p-toast { max-width: calc(100vw - 2rem); }
 .empty-state { padding: 3rem 1rem; text-align: center; color: var(--text-color-secondary); }
 .empty-state .pi { display: block; margin-bottom: 1rem; font-size: 2.5rem; }
+.page-error { max-width: 38rem; margin: 2rem auto; padding: 2rem; border: 1px solid #fecaca; border-radius: 14px; color: #991b1b; text-align: center; background: #fff7f7; }
+.page-error i { display: block; margin-bottom: .75rem; font-size: 2rem; }
+.page-error p { line-height: 1.5; }
+.app-dark { color-scheme: dark; --text-color: #e5edf7; --text-color-secondary: #9eacbd; --surface-border: #334155; --surface-card: #172033; --surface-hover: #263247; }
+.app-dark body { background: #0f172a; }
+.app-dark .topbar, .app-dark .sidebar, .app-dark .table-card, .app-dark .filters, .app-dark .surface-card { color: var(--text-color); background-color: #172033; }
+.app-dark .board-column { border-color: #334155; background: #1e293b; }
 @media (max-width: 640px) { .p-dialog { width: calc(100vw - 2rem) !important; } }

@@ -1,8 +1,8 @@
 import { HttpClient, HttpHeaders, HttpParams, HttpResponse } from '@angular/common/http';
 import { Injectable } from '@angular/core';
-import { catchError, forkJoin, map, Observable, of } from 'rxjs';
+import { map, Observable } from 'rxjs';
 import { RuntimeConfigService } from '../../core/config/runtime-config.service';
-import { Board, BoardColumn, BoardTask, TaskFilters, User } from '../../shared/models';
+import { Board, BoardColumn, BoardTask, CursorPageResult, TaskFilters } from '../../shared/models';
 import { normalizeArray } from '../../shared/collection-utils';
 
 export type ColumnInput = Pick<BoardColumn, 'name'>;
@@ -10,14 +10,26 @@ export type TaskInput = Pick<BoardTask, 'title' | 'description' | 'priority' | '
 
 @Injectable({ providedIn: 'root' })
 export class BoardService {
+  private readonly taskLimit = 20;
+  private readonly maxTaskLimit = 50;
+
   constructor(private readonly http: HttpClient, private readonly config: RuntimeConfigService) {}
 
-  load(projectId: string): Observable<Board> {
-    const board$ = this.http.get<unknown>(this.config.endpoint('board', { projectId })).pipe(map(body => this.normalizeBoard(body)));
-    const members$ = this.http.get<User[] | { items?: User[]; data?: User[] }>(this.config.endpoint('members', { projectId })).pipe(
-      map(normalizeArray), catchError(() => of([] as User[]))
-    );
-    return forkJoin({ board: board$, members: members$ }).pipe(map(({ board, members }) => ({ ...board, members: board.members.length ? board.members : members })));
+  load(projectId: string, filters: TaskFilters, taskLimit = this.taskLimit): Observable<Board> {
+    const params = this.taskParams(filters).set('taskLimit', Math.min(this.maxTaskLimit, Math.max(this.taskLimit, taskLimit)));
+    return this.http.get<unknown>(this.config.endpoint('board', { projectId }), { params }).pipe(map(body => this.normalizeBoard(body)));
+  }
+
+  loadColumnTasks(projectId: string, columnId: string, lastTask: BoardTask, filters: TaskFilters, boardEtag: string, limit = this.taskLimit): Observable<CursorPageResult<BoardTask>> {
+    let params = this.taskParams(filters)
+      .set('limit', Math.min(this.taskLimit, Math.max(1, limit)))
+      .set('afterPosition', lastTask.position)
+      .set('afterTaskId', lastTask.id);
+
+    return this.http.get<CursorPageResult<BoardTask>>(this.config.endpoint('columnTasks', { projectId, columnId }), {
+      params,
+      headers: this.ifMatch(boardEtag)
+    });
   }
 
   createColumn(projectId: string, input: ColumnInput, idempotencyKey: string): Observable<BoardColumn> {
@@ -68,13 +80,30 @@ export class BoardService {
   private normalizeBoard(response: unknown): Board {
     const wrapped = response as { data?: unknown };
     const raw = (wrapped?.data ?? response) as Partial<Board> & { projectId?: string; name?: string };
-    const columns = normalizeArray((raw.columns ?? []) as BoardColumn[]).map(column => ({ ...column, tasks: normalizeArray(column.tasks ?? []) }));
+    const columns = normalizeArray((raw.columns ?? []) as BoardColumn[]).map(column => {
+      const tasks = normalizeArray(column.tasks ?? []);
+      return {
+        ...column,
+        tasks,
+        taskTotal: column.taskTotal ?? tasks.length,
+        hasMoreTasks: column.hasMoreTasks ?? (column.taskTotal ?? tasks.length) > tasks.length
+      };
+    });
     return {
       project: raw.project ?? { id: raw.projectId ?? '', name: raw.name ?? 'Tablero' },
       columns,
       members: normalizeArray(raw.members ?? []),
       etag: raw.etag ?? raw.project?.etag
     };
+  }
+
+  private taskParams(filters: TaskFilters): HttpParams {
+    let params = new HttpParams();
+    const search = filters.search.trim();
+    if (search) params = params.set('search', search);
+    if (filters.assigneeId) params = params.set('assigneeId', filters.assigneeId);
+    if (filters.priority) params = params.set('priority', filters.priority);
+    return params;
   }
 
   private ifMatch(etag?: string): HttpHeaders { return etag ? new HttpHeaders({ 'If-Match': etag }) : new HttpHeaders(); }

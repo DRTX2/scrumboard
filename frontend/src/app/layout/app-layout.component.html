@@ -1,20 +1,23 @@
 <div class="layout" [class.menu-open]="menuOpen()">
   <header class="topbar">
-    <button class="menu-button" type="button" aria-label="Abrir menú" (click)="menuOpen.set(!menuOpen())"><i class="pi pi-bars"></i></button>
+    <button #menuButton class="menu-button" type="button" [attr.aria-label]="menuOpen() ? 'Cerrar menú' : 'Abrir menú'" aria-controls="app-sidebar" [attr.aria-expanded]="menuOpen()" (click)="toggleMenu()"><i class="pi pi-bars" aria-hidden="true"></i></button>
     <a class="logo" routerLink="/"><span><i class="pi pi-sitemap"></i></span><strong>ScrumBoard</strong></a>
     <div class="topbar-user">
       <div><strong>{{ user()?.name || 'Usuario' }}</strong><small>{{ user()?.email }}</small></div>
+      <button pButton type="button" class="p-button-text p-button-rounded theme-button" [icon]="darkTheme() ? 'pi pi-sun' : 'pi pi-moon'" [attr.aria-label]="darkTheme() ? 'Usar tema claro' : 'Usar tema oscuro'" (click)="layout.toggleTheme()"></button>
       <p-avatar [label]="(user()?.name || 'U').charAt(0).toUpperCase()" shape="circle" />
       <button pButton type="button" class="p-button-text p-button-rounded" icon="pi pi-sign-out" aria-label="Cerrar sesión" (click)="logout()"></button>
     </div>
   </header>
-  <aside class="sidebar">
+  <aside #sidebar id="app-sidebar" class="sidebar" [attr.aria-hidden]="layout.mobile() && !menuOpen() ? 'true' : null" [attr.inert]="layout.mobile() && !menuOpen() ? '' : null">
     <p class="menu-label">ESPACIO DE TRABAJO</p>
-    <nav>
-      <a routerLink="/projects" routerLinkActive="active" (click)="menuOpen.set(false)"><i class="pi pi-th-large"></i><span>Proyectos</span></a>
+    <nav aria-label="Navegación principal">
+      @for (item of menuItems; track item.routerLink) {
+        <a [routerLink]="item.routerLink" routerLinkActive="active" (click)="layout.closeMenu()"><i [class]="item.icon" aria-hidden="true"></i><span>{{ item.label }}</span></a>
+      }
     </nav>
     <div class="sidebar-footer"><span class="status-dot"></span><span>Servicios operativos</span></div>
   </aside>
-  @if (menuOpen()) { <button class="backdrop" aria-label="Cerrar menú" (click)="menuOpen.set(false)"></button> }
+  @if (menuOpen()) { <button class="backdrop" aria-label="Cerrar menú" (click)="closeMenu()"></button> }
   <main class="content"><router-outlet /></main>
 </div>
