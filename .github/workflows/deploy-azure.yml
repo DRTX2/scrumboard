@@ -308,8 +308,9 @@ jobs:
           PASSWORD_PEPPER: ${{ secrets.PASSWORD_PEPPER }}
           GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
         run: |
+          deployment_suffix="${IMAGE_TAG:0:12}"
           az deployment group create \
-            --name "applications-maintenance-$IMAGE_TAG" \
+            --name "apps-maintenance-$deployment_suffix" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --template-file deploy/azure/apps.bicep \
             --parameters environmentName="$AZURE_ENVIRONMENT_NAME" \
