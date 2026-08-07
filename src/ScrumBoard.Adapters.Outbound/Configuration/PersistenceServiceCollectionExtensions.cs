@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using ScrumBoard.Adapters.Outbound.Persistence;
+using ScrumBoard.Adapters.Outbound.Persistence.Idempotency;
 using ScrumBoard.Adapters.Outbound.Persistence.Repositories;
 using ScrumBoard.Application.Ports.Out;
 
@@ -24,6 +25,7 @@ internal static class PersistenceServiceCollectionExtensions
         services.AddScoped<IBoardRepository, BoardRepository>();
         services.AddScoped<IReportDataSource, ReportDataSource>();
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<ScrumBoardDbContext>());
+        services.AddScoped<PostgreSqlIdempotencyStore>();
         return services;
     }
 }

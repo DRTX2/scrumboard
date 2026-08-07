@@ -17,13 +17,12 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Npgsql;
 using ScrumBoard.Adapters.Inbound.Infrastructure;
-using ScrumBoard.Adapters.Inbound.Infrastructure.Idempotency;
 using ScrumBoard.Adapters.Outbound.Persistence;
+using ScrumBoard.Adapters.Outbound.Persistence.Idempotency;
 using ScrumBoard.Adapters.Outbound.Persistence.Models;
 using ScrumBoard.Adapters.Outbound.Persistence.Repositories;
 using ScrumBoard.Adapters.Outbound.Persistence.Seed;
 using ScrumBoard.Adapters.Outbound.Security;
-using ScrumBoard.Api.Composition.Idempotency;
 using ScrumBoard.Application.Models.Projects;
 using ScrumBoard.Application.Models.Tasks;
 using ScrumBoard.Application.Ports.Inbound.Boards;
@@ -716,51 +715,51 @@ public sealed class PostgreSqlPersistenceTests(PostgreSqlFixture database)
     }
 
     [DockerFact]
-    public async Task IdempotencyCoordinator_AbortRollsBackSavedBusinessChangesAndReleasesReservation()
+    public async Task IdempotencyStore_AbortRollsBackSavedBusinessChangesAndReleasesReservation()
     {
         database.EnsureAvailable();
         await using var provider = database.BuildServices();
         await using var scope = provider.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<ScrumBoardDbContext>();
-        var coordinator = new PostgreSqlIdempotencyCoordinator(dbContext,
+        var store = new PostgreSqlIdempotencyStore(dbContext,
             provider.GetRequiredService<IServiceScopeFactory>());
         var key = Guid.NewGuid().ToString("N");
         var project = new Project(Guid.NewGuid(), "Rolled back project", null, new DateOnly(2026, 8, 4),
             new DateOnly(2026, 8, 11), ProjectStatus.Active, DemoOwnerId, DateTimeOffset.UtcNow);
-        var reservation = await coordinator.ReserveAsync(DemoOwnerId, "POST:/test", key, new string('A', 64),
+        var reservation = await store.ReserveAsync(DemoOwnerId, "POST:/test", key, new string('A', 64),
             DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(24), default);
 
-        await coordinator.BeginExecutionAsync(default);
+        await store.BeginExecutionAsync(default);
         dbContext.Projects.Add(project);
         await dbContext.SaveChangesAsync();
-        await coordinator.AbortAsync(reservation.Id, default);
+        await store.AbortAsync(reservation.Id, default);
 
         Assert.False(await dbContext.Projects.AnyAsync(item => item.Id == project.Id));
         Assert.False(await dbContext.IdempotencyRecords.AnyAsync(item => item.Id == reservation.Id));
     }
 
     [DockerFact]
-    public async Task IdempotencyCoordinator_AbortAfterCommitPreservesMutationAndReplayRecord()
+    public async Task IdempotencyStore_AbortAfterCommitPreservesMutationAndReplayRecord()
     {
         database.EnsureAvailable();
         await using var provider = database.BuildServices();
         await using var scope = provider.CreateAsyncScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<ScrumBoardDbContext>();
-        var coordinator = new PostgreSqlIdempotencyCoordinator(dbContext,
+        var store = new PostgreSqlIdempotencyStore(dbContext,
             provider.GetRequiredService<IServiceScopeFactory>());
         var key = Guid.NewGuid().ToString("N");
         var project = new Project(Guid.NewGuid(), "Committed project", null, new DateOnly(2026, 8, 4),
             new DateOnly(2026, 8, 11), ProjectStatus.Active, DemoOwnerId, DateTimeOffset.UtcNow);
-        var reservation = await coordinator.ReserveAsync(DemoOwnerId, "POST:/test", key, new string('B', 64),
+        var reservation = await store.ReserveAsync(DemoOwnerId, "POST:/test", key, new string('B', 64),
             DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(24), default);
 
-        await coordinator.BeginExecutionAsync(default);
+        await store.BeginExecutionAsync(default);
         dbContext.Projects.Add(project);
         await dbContext.SaveChangesAsync();
-        await coordinator.CompleteAndCommitAsync(reservation.Id,
-            new IdempotentResponse(201, "application/json", "{}", "/test", "\"1\"", null),
+        await store.CompleteAndCommitAsync(reservation.Id,
+            new StoredIdempotentResponse(201, "application/json", "{}", "/test", "\"1\"", null),
             DateTimeOffset.UtcNow, default);
-        await coordinator.AbortAsync(reservation.Id, default);
+        await store.AbortAsync(reservation.Id, default);
 
         Assert.True(await dbContext.Projects.AnyAsync(item => item.Id == project.Id));
         Assert.True(await dbContext.IdempotencyRecords.AnyAsync(item => item.Id == reservation.Id && item.CompletedAt != null));

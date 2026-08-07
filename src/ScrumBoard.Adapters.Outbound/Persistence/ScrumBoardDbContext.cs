@@ -19,7 +19,7 @@ public sealed class ScrumBoardDbContext(DbContextOptions<ScrumBoardDbContext> op
     public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
     public DbSet<BoardColumn> Columns => Set<BoardColumn>();
     public DbSet<TaskItem> Tasks => Set<TaskItem>();
-    public DbSet<IdempotencyRecordRow> IdempotencyRecords => Set<IdempotencyRecordRow>();
+    internal DbSet<IdempotencyRecordRow> IdempotencyRecords => Set<IdempotencyRecordRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

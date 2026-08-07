@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using ScrumBoard.Adapters.Outbound.Persistence;
 
 namespace ScrumBoard.Adapters.Outbound.Configuration;
 
@@ -14,4 +15,7 @@ public static class OutboundAdapterServiceCollectionExtensions
             .AddSecurityAdapters(configuration)
             .AddReportExporters();
     }
+
+    public static IHealthChecksBuilder AddPostgreSqlAdapterHealthCheck(this IHealthChecksBuilder healthChecks) =>
+        healthChecks.AddDbContextCheck<ScrumBoardDbContext>("postgresql", tags: ["ready"]);
 }
