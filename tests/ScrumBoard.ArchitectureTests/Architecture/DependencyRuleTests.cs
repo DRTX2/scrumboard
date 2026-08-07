@@ -206,6 +206,7 @@ public sealed class DependencyRuleTests
     {
         var misplaced = typeof(Program).Assembly.GetTypes()
             .Where(type => type != typeof(Program) && type.Namespace is { } name &&
+                !name.StartsWith("Coverlet.Core.Instrumentation.Tracker", StringComparison.Ordinal) &&
                 !name.StartsWith("ScrumBoard.Api.Configuration", StringComparison.Ordinal) &&
                 !name.StartsWith("ScrumBoard.Api.Composition", StringComparison.Ordinal))
             .Select(type => type.FullName)
