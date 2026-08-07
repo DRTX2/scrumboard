@@ -112,10 +112,10 @@ Una tarea siempre requiere responsable y este debe ser miembro del mismo proyect
 La solución hace explícita una arquitectura hexagonal mediante proyectos independientes:
 
 - `ScrumBoard.Domain`: entidades, invariantes y ordenamiento.
-- `ScrumBoard.Application`: modelos neutrales, `Ports/In`, `Ports/Out` y casos de uso, sin dependencias de frameworks o DI.
-- `ScrumBoard.Adapters.Inbound`: HTTP, SignalR, identidad de la solicitud, Problem Details, ETags e idempotencia HTTP.
-- `ScrumBoard.Adapters.Outbound`: EF Core/Npgsql, JWT, PBKDF2, tiempo y reportes PDF/XLSX.
-- `ScrumBoard.Api`: host y composition root; configura autenticación, CORS, rate limiting, salud, telemetría y el bridge transaccional de idempotencia.
+- `ScrumBoard.Application`: modelos neutrales, `Ports/Inbound`, `Ports/Out` y casos de uso, sin dependencias de frameworks o DI.
+- `ScrumBoard.Adapters.Inbound`: adaptador web con HTTP, identidad de la solicitud, Problem Details, ETags e idempotencia; SignalR es bidireccional porque recibe suscripciones y publica eventos mediante `IBoardNotifier`.
+- `ScrumBoard.Adapters.Outbound`: EF Core/Npgsql, almacenamiento transaccional de idempotencia, JWT, PBKDF2, tiempo y reportes PDF/XLSX.
+- `ScrumBoard.Api`: host y composition root; configura autenticación, CORS, rate limiting, salud y telemetría, y traduce entre los contratos técnicos de ambos adaptadores sin implementar persistencia.
 - `ScrumBoard.Migrator`: ejecutable independiente que aplica migraciones antes del arranque.
 - `frontend`: SPA Angular/PrimeNG con shell Sakai adaptable, servida por nginx no privilegiado y con configuración de endpoints en tiempo de ejecución.
 

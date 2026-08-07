@@ -1,6 +1,6 @@
 namespace ScrumBoard.Adapters.Outbound.Persistence.Models;
 
-public sealed class IdempotencyRecordRow
+internal sealed class IdempotencyRecordRow
 {
     private IdempotencyRecordRow() { }
 

@@ -1,5 +1,7 @@
 using System.Reflection;
+using System.Xml.Linq;
 using NetArchTest.Rules;
+using ScrumBoard.Adapters.Inbound;
 using ScrumBoard.Adapters.Inbound.Http;
 using ScrumBoard.Adapters.Inbound.SignalR;
 using ScrumBoard.Adapters.Outbound.Persistence;
@@ -13,6 +15,8 @@ namespace ScrumBoard.ArchitectureTests.Architecture;
 
 public sealed class DependencyRuleTests
 {
+    private static readonly string RepositoryRoot = FindRepositoryRoot();
+
     [Fact]
     public void Domain_DoesNotDependOnOuterLayers()
     {
@@ -57,6 +61,23 @@ public sealed class DependencyRuleTests
             .GetResult();
 
         AssertRule(result);
+        Assert.Equal(
+            ["ScrumBoard.Application", "ScrumBoard.Domain"],
+            SolutionReferences(typeof(ScrumBoardDbContext).Assembly));
+    }
+
+    [Fact]
+    public void InboundAdapters_DoNotDependOnOutboundAdaptersOrApi()
+    {
+        var result = Types.InAssembly(typeof(InboundAdapterExtensions).Assembly)
+            .ShouldNot()
+            .HaveDependencyOnAny("ScrumBoard.Adapters.Outbound", "ScrumBoard.Api")
+            .GetResult();
+
+        AssertRule(result);
+        Assert.Equal(
+            ["ScrumBoard.Application", "ScrumBoard.Domain"],
+            SolutionReferences(typeof(InboundAdapterExtensions).Assembly));
     }
 
     [Fact]
@@ -161,7 +182,7 @@ public sealed class DependencyRuleTests
     }
 
     [Fact]
-    public void SignalRTypes_UseOneTechnicalAdapterNamespace()
+    public void RealtimeAdapter_UsesOneProtocolNamespace()
     {
         var misplaced = typeof(BoardHub).Assembly.GetTypes()
             .Where(type => type.Namespace?.Contains("SignalR", StringComparison.Ordinal) is true)
@@ -180,6 +201,60 @@ public sealed class DependencyRuleTests
         Assert.Equal(["ScrumBoard.Adapters.Outbound"], SolutionReferences(assembly));
     }
 
+    [Fact]
+    public void Api_ContainsOnlyHostConfigurationAndCompositionTypes()
+    {
+        var misplaced = typeof(Program).Assembly.GetTypes()
+            .Where(type => type != typeof(Program) && type.Namespace is { } name &&
+                !name.StartsWith("Coverlet.Core.Instrumentation.Tracker", StringComparison.Ordinal) &&
+                !name.StartsWith("ScrumBoard.Api.Configuration", StringComparison.Ordinal) &&
+                !name.StartsWith("ScrumBoard.Api.Composition", StringComparison.Ordinal))
+            .Select(type => type.FullName)
+            .ToList();
+
+        Assert.Empty(misplaced);
+        Assert.Equal(
+            ["ScrumBoard.Adapters.Inbound", "ScrumBoard.Adapters.Outbound", "ScrumBoard.Application"],
+            SolutionReferences(typeof(Program).Assembly));
+    }
+
+    [Fact]
+    public void ProductionProjects_HaveExactInwardProjectReferences()
+    {
+        var expectedReferences = new Dictionary<string, string[]>(StringComparer.Ordinal)
+        {
+            ["src/ScrumBoard.Domain/ScrumBoard.Domain.csproj"] = [],
+            ["src/ScrumBoard.Application/ScrumBoard.Application.csproj"] = ["ScrumBoard.Domain"],
+            ["src/ScrumBoard.Adapters.Inbound/ScrumBoard.Adapters.Inbound.csproj"] =
+                ["ScrumBoard.Application", "ScrumBoard.Domain"],
+            ["src/ScrumBoard.Adapters.Outbound/ScrumBoard.Adapters.Outbound.csproj"] =
+                ["ScrumBoard.Application", "ScrumBoard.Domain"],
+            ["src/ScrumBoard.Api/ScrumBoard.Api.csproj"] =
+                ["ScrumBoard.Adapters.Inbound", "ScrumBoard.Adapters.Outbound", "ScrumBoard.Application"],
+            ["src/ScrumBoard.Migrator/ScrumBoard.Migrator.csproj"] = ["ScrumBoard.Adapters.Outbound"]
+        };
+
+        foreach (var (relativePath, expected) in expectedReferences)
+        {
+            Assert.Equal(expected, ProjectReferences(relativePath));
+        }
+    }
+
+    [Theory]
+    [InlineData("src/ScrumBoard.Domain/ScrumBoard.Domain.csproj")]
+    [InlineData("src/ScrumBoard.Application/ScrumBoard.Application.csproj")]
+    public void CoreProjects_HaveNoFrameworkOrPackageReferences(string relativePath)
+    {
+        var project = XDocument.Load(Path.Combine(RepositoryRoot, relativePath));
+        var externalReferences = project.Descendants()
+            .Where(element => element.Name.LocalName is "PackageReference" or "FrameworkReference")
+            .Select(element => element.Attribute("Include")?.Value)
+            .OfType<string>()
+            .ToList();
+
+        Assert.Empty(externalReferences);
+    }
+
     private static string[] SolutionReferences(Assembly assembly) =>
         assembly.GetReferencedAssemblies()
             .Select(reference => reference.Name)
@@ -187,6 +262,34 @@ public sealed class DependencyRuleTests
             .Where(name => name.StartsWith("ScrumBoard.", StringComparison.Ordinal))
             .Order()
             .ToArray();
+
+    private static string[] ProjectReferences(string relativePath)
+    {
+        var projectPath = Path.Combine(RepositoryRoot, relativePath);
+        var projectDirectory = Path.GetDirectoryName(projectPath)!;
+        return XDocument.Load(projectPath).Descendants()
+            .Where(element => element.Name.LocalName == "ProjectReference")
+            .Select(element => element.Attribute("Include")?.Value)
+            .OfType<string>()
+            .Select(reference => reference.Replace('\\', Path.DirectorySeparatorChar))
+            .Select(reference => Path.GetFullPath(reference, projectDirectory))
+            .Select(Path.GetFileNameWithoutExtension)
+            .OfType<string>()
+            .Order()
+            .ToArray();
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
+             directory is not null;
+             directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "ScrumBoard.sln"))) return directory.FullName;
+        }
+
+        throw new DirectoryNotFoundException("Could not locate the repository root from the test output directory.");
+    }
 
     private static void AssertRule(TestResult result) =>
         Assert.True(result.IsSuccessful, $"Failing types: {string.Join(", ", result.FailingTypeNames ?? [])}");

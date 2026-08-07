@@ -1,13 +1,11 @@
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -16,16 +14,13 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
-using ScrumBoard.Adapters.Inbound.Http;
+using ScrumBoard.Adapters.Inbound;
 using ScrumBoard.Adapters.Inbound.Infrastructure;
 using ScrumBoard.Adapters.Inbound.Infrastructure.Idempotency;
-using ScrumBoard.Adapters.Inbound.SignalR;
 using ScrumBoard.Adapters.Outbound.Configuration;
-using ScrumBoard.Adapters.Outbound.Persistence;
 using ScrumBoard.Adapters.Outbound.Security;
 using ScrumBoard.Api.Composition.Idempotency;
 using ScrumBoard.Api.Configuration;
-using ScrumBoard.Application.Ports.Out;
 
 var builder = WebApplication.CreateBuilder(args);
 var maintenanceMode = builder.Configuration.GetValue<bool>("MaintenanceMode");
@@ -46,48 +41,9 @@ if (forwardedHeadersEnabled)
 
 builder.Services.AddApplicationUseCases();
 builder.Services.AddOutboundAdapters(builder.Configuration);
-builder.Services.AddHttpContextAccessor();
-builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
+builder.Services.AddInboundAdapters();
 builder.Services.AddScoped<IIdempotencyCoordinator, PostgreSqlIdempotencyCoordinator>();
 builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddBoardSignalR();
-
-builder.Services.AddExceptionHandler<ApiExceptionHandler>();
-builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
-{
-    context.ProblemDetails.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
-});
-builder.Services
-    .AddControllers()
-    .AddApplicationPart(typeof(BoardsController).Assembly)
-    .AddJsonOptions(options =>
-        options.JsonSerializerOptions.Converters.Add(
-            new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false)));
-builder.Services.Configure<ApiBehaviorOptions>(options =>
-{
-    options.InvalidModelStateResponseFactory = context =>
-    {
-        var errors = context.ModelState
-            .Where(entry => entry.Value?.ValidationState == ModelValidationState.Invalid)
-            .ToDictionary(
-                entry => entry.Key,
-                _ => ApiValidationMessages.InvalidValue);
-        var problem = new ValidationProblemDetails(errors)
-        {
-            Status = StatusCodes.Status400BadRequest,
-            Title = "La solicitud no es válida.",
-            Type = "https://www.rfc-editor.org/rfc/rfc9110#section-15.5.1"
-        };
-        problem.Extensions["code"] = "invalid_request";
-        problem.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
-        return new ContentResult
-        {
-            StatusCode = StatusCodes.Status400BadRequest,
-            ContentType = "application/problem+json",
-            Content = JsonSerializer.Serialize(problem)
-        };
-    };
-});
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
 builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
@@ -225,7 +181,7 @@ builder.Services.AddSwaggerGen(options =>
 });
 builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy(), tags: ["live", "ready"])
-    .AddDbContextCheck<ScrumBoardDbContext>("postgresql", tags: ["ready"]);
+    .AddPostgreSqlAdapterHealthCheck();
 builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource.AddService("ScrumBoard.Api"))
     .WithTracing(tracing => tracing.AddAspNetCoreInstrumentation().AddHttpClientInstrumentation())
@@ -234,8 +190,7 @@ builder.Services.AddOpenTelemetry()
 var app = builder.Build();
 
 if (forwardedHeadersEnabled) app.UseForwardedHeaders();
-app.UseExceptionHandler();
-app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseInboundRequestContext();
 app.Use(async (context, next) =>
 {
     if (!maintenanceMode || context.Request.Path == "/health/live" || context.Request.Path == "/health/ready")
@@ -264,7 +219,7 @@ app.UseCors();
 app.UseAuthentication();
 app.UseRateLimiter();
 app.UseAuthorization();
-app.UseMiddleware<IdempotencyMiddleware>();
+app.UseInboundIdempotency();
 app.UseSwagger();
 app.MapScalarApiReference(options => options.WithTitle("ScrumBoard API").WithOpenApiRoutePattern("/swagger/v1/swagger.json"));
 app.MapHealthChecks("/health/live", new HealthCheckOptions
@@ -275,8 +230,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 {
     Predicate = registration => registration.Tags.Contains("ready")
 });
-app.MapControllers();
-app.MapHub<BoardHub>("/hubs/boards");
+app.MapInboundEndpoints();
 
 app.Run();
 

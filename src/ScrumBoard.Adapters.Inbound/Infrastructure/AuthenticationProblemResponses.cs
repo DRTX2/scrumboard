@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace ScrumBoard.Adapters.Inbound.Infrastructure;
 
-internal static class AuthenticationProblemResponses
+public static class AuthenticationProblemResponses
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
 

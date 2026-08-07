@@ -1,13 +1,13 @@
 namespace ScrumBoard.Adapters.Inbound.Infrastructure.Idempotency;
 
-internal enum IdempotencyReservationState
+public enum IdempotencyReservationState
 {
     Acquired,
     InProgress,
     Completed
 }
 
-internal sealed record IdempotentResponse(
+public sealed record IdempotentResponse(
     int StatusCode,
     string ContentType,
     string ResponseBody,
@@ -15,13 +15,13 @@ internal sealed record IdempotentResponse(
     string? Etag,
     string? BoardEtag);
 
-internal sealed record IdempotencyReservation(
+public sealed record IdempotencyReservation(
     Guid Id,
     IdempotencyReservationState State,
     string RequestHash,
     IdempotentResponse? Response);
 
-internal interface IIdempotencyCoordinator
+public interface IIdempotencyCoordinator
 {
     Task<IdempotencyReservation> ReserveAsync(
         Guid userId,

@@ -33,6 +33,7 @@ La SPA usa Angular 17 standalone, PrimeNG/PrimeFlex/PrimeIcons y una adaptación
 
 ```mermaid
 flowchart TB
+    CLIENTS[SPA y clientes]
     HOST[Host y composition root\nScrumBoard.Api]
     IN[HTTP, SignalR y middleware\nScrumBoard.Adapters.Inbound]
     APP[Modelos neutrales, puertos y casos de uso\nScrumBoard.Application]
@@ -43,7 +44,10 @@ flowchart TB
 
     HOST --> IN
     HOST --> OUT
-    IN --> APP
+    CLIENTS -->|HTTP / SignalR inbound| IN
+    IN -->|Ports/Inbound| APP
+    APP -.->|IBoardNotifier en runtime| IN
+    IN -->|Eventos SignalR| CLIENTS
     APP --> DOMAIN
     OUT --> APP
     OUT --> DOMAIN
@@ -51,7 +55,7 @@ flowchart TB
     OUT --> FILES
 ```
 
-La estructura hace explícita la arquitectura hexagonal: `Application/Ports/In` contiene comandos e interfaces invocados por los adaptadores de entrada; `Application/Models` contiene criterios, proyecciones y notificaciones neutrales compartidas; `Application/UseCases` contiene la lógica; y `Application/Ports/Out` define persistencia, identidad de ejecución, seguridad, tiempo, reportes y notificaciones. `ScrumBoard.Adapters.Inbound` implementa HTTP, SignalR y middleware. `ScrumBoard.Adapters.Outbound` implementa los adapters durables y externos. API conserva únicamente el host, el composition root y el bridge técnico que une la idempotencia HTTP con la transacción PostgreSQL. El migrador reutiliza el contexto outbound sin acoplar la migración al arranque web.
+La estructura hace explícita la arquitectura hexagonal: `Application/Ports/Inbound` contiene comandos e interfaces invocados por los adaptadores de entrada; `Application/Models` contiene criterios, proyecciones y notificaciones neutrales compartidas; `Application/UseCases` contiene la lógica; y `Application/Ports/Out` define persistencia, identidad de ejecución, seguridad, tiempo, reportes y notificaciones. `ScrumBoard.Adapters.Inbound` implementa HTTP, middleware y el protocolo SignalR. SignalR es deliberadamente bidireccional dentro del mismo adaptador web: el hub consume puertos de entrada y el notifier implementa `IBoardNotifier` para publicar hacia los clientes. `ScrumBoard.Adapters.Outbound` implementa los adaptadores durables y externos. API conserva únicamente el host, el composition root y un bridge delgado que traduce el contrato de idempotencia HTTP hacia `PostgreSqlIdempotencyStore`; toda consulta, transacción y manejo de Npgsql permanece encapsulado en el adaptador outbound. El migrador reutiliza el contexto outbound sin acoplar la migración al arranque web.
 
 Las dependencias de compilación apuntan hacia el núcleo:
 
@@ -59,7 +63,7 @@ Las dependencias de compilación apuntan hacia el núcleo:
 - `Application` referencia únicamente `Domain`, sin paquetes de DI ni frameworks; los casos de uso implementan puertos de entrada y consumen puertos de salida.
 - `Adapters.Inbound` referencia `Application` y `Domain`, nunca implementaciones outbound.
 - `Adapters.Outbound` referencia `Application` y `Domain`, nunca adapters inbound ni API.
-- `Api` referencia ambos lados únicamente para componerlos, registrar implementaciones y comprobar PostgreSQL.
+- `Api` referencia ambos lados únicamente para componerlos; no contiene consultas EF, modelos de persistencia ni manejo de errores Npgsql.
 - `Migrator` es otro host y solo orquesta el adaptador de persistencia para aplicar la historia EF Core.
 
 Los puertos de salida no importan contratos de entrada. Los criterios y resultados que necesitan ambos lados residen en `Application/Models`. El usuario actual es un puerto de salida suministrado por el adapter HTTP. Los nombres de eventos y payloads SignalR se traducen exclusivamente dentro de `ScrumBoard.Adapters.Inbound/SignalR`; Application publica notificaciones tipadas.
