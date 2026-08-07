@@ -40,4 +40,27 @@ test.describe('seeded report download', () => {
     await expect(page.getByRole('heading', { name: search, exact: true })).toBeVisible();
     await expect(page.getByText('Limpia los filtros para reordenar')).toBeVisible();
   });
+
+  test('Excel download has the expected workbook type and safe filename', async ({ page }) => {
+    await loginAndOpenSeededBoard(page, demoUsers.owner.email);
+    const responsePromise = page.waitForResponse(response => {
+      const url = new URL(response.url());
+      return response.request().method() === 'GET' &&
+        /\/api\/v1\/projects\/[^/]+\/reports$/.test(url.pathname) &&
+        url.searchParams.get('format') === 'xlsx';
+    });
+    const downloadPromise = page.waitForEvent('download');
+
+    await page.getByRole('button', { name: 'Descargar reporte Excel' }).click();
+    const [response, download] = await Promise.all([responsePromise, downloadPromise]);
+
+    expect(response.ok()).toBe(true);
+    expect(response.headers()['content-type']?.split(';')[0]).toBe(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    expect(download.suggestedFilename()).toMatch(/^(?:ScrumBoard-Launch-\d{8}-\d{4}|scrumboard-launch-(?:reporte|report))\.xlsx$/);
+    expect(download.suggestedFilename()).not.toMatch(/[\\/\u0000-\u001f\u007f]/);
+    expect((await response.body()).subarray(0, 2).toString('ascii')).toBe('PK');
+    expect(await download.failure()).toBeNull();
+  });
 });

@@ -132,8 +132,8 @@ export const collaborationTest = base.extend<{ collaboration: CollaborationFixtu
       expect(memberProjectId).toBe(ownerProjectId);
 
       await Promise.all([
-        expect(ownerPage.getByText(/^\d+ en línea$/)).toBeVisible({ timeout: 15000 }),
-        expect(memberPage.getByText(/^\d+ en línea$/)).toBeVisible({ timeout: 15000 })
+        expect(ownerPage.getByText('2 en línea', { exact: true })).toBeVisible({ timeout: 15000 }),
+        expect(memberPage.getByText('2 en línea', { exact: true })).toBeVisible({ timeout: 15000 })
       ]);
 
       await use({
