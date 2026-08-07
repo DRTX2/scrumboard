@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging.Abstractions;
-using ScrumBoard.Api.Adapters.SignalR;
-using ScrumBoard.Api.Infrastructure;
+using ScrumBoard.Adapters.Inbound.Infrastructure;
+using ScrumBoard.Adapters.Inbound.SignalR;
 using ScrumBoard.Application.Models.Boards;
 using ScrumBoard.Domain.Tasks;
 

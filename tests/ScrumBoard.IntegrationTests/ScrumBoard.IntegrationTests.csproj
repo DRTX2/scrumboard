@@ -29,7 +29,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\ScrumBoard.Api\ScrumBoard.Api.csproj" />
-    <ProjectReference Include="..\..\src\ScrumBoard.Infrastructure\ScrumBoard.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\ScrumBoard.Adapters.Inbound\ScrumBoard.Adapters.Inbound.csproj" />
+    <ProjectReference Include="..\..\src\ScrumBoard.Adapters.Outbound\ScrumBoard.Adapters.Outbound.csproj" />
   </ItemGroup>
 
 </Project>

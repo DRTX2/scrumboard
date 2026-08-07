@@ -33,33 +33,36 @@ La SPA usa Angular 17 standalone, PrimeNG/PrimeFlex/PrimeIcons y una adaptación
 
 ```mermaid
 flowchart TB
-    HTTP[Adaptador de entrada HTTP y adaptador bidireccional SignalR\nScrumBoard.Api]
+    HOST[Host y composition root\nScrumBoard.Api]
+    IN[HTTP, SignalR y middleware\nScrumBoard.Adapters.Inbound]
     APP[Modelos neutrales, puertos y casos de uso\nScrumBoard.Application]
     DOMAIN[Entidades e invariantes\nScrumBoard.Domain]
-    INFRA[EF Core, JWT, PBKDF2 y reportes\nScrumBoard.Infrastructure]
+    OUT[EF Core, JWT, PBKDF2 y reportes\nScrumBoard.Adapters.Outbound]
     PG[(PostgreSQL)]
     FILES[PDF / XLSX]
 
-    HTTP --> APP
+    HOST --> IN
+    HOST --> OUT
+    IN --> APP
     APP --> DOMAIN
-    INFRA --> APP
-    INFRA --> DOMAIN
-    HTTP --> INFRA
-    INFRA --> PG
-    INFRA --> FILES
+    OUT --> APP
+    OUT --> DOMAIN
+    OUT --> PG
+    OUT --> FILES
 ```
 
-La estructura hace explícita la arquitectura hexagonal: `Application/Ports/Inbound` contiene comandos e interfaces invocados por los adaptadores de entrada; `Application/Models` contiene criterios, proyecciones y notificaciones neutrales compartidas; `Application/UseCases` contiene la lógica; y `Application/Ports/Outbound` define persistencia, seguridad, tiempo, reportes y notificaciones. Infrastructure implementa los adaptadores durables y externos. API contiene el adaptador HTTP, el adaptador técnico bidireccional SignalR y el composition root. El migrador reutiliza el contexto de infraestructura sin acoplar la migración al arranque web.
+La estructura hace explícita la arquitectura hexagonal: `Application/Ports/In` contiene comandos e interfaces invocados por los adaptadores de entrada; `Application/Models` contiene criterios, proyecciones y notificaciones neutrales compartidas; `Application/UseCases` contiene la lógica; y `Application/Ports/Out` define persistencia, identidad de ejecución, seguridad, tiempo, reportes y notificaciones. `ScrumBoard.Adapters.Inbound` implementa HTTP, SignalR y middleware. `ScrumBoard.Adapters.Outbound` implementa los adapters durables y externos. API conserva únicamente el host, el composition root y el bridge técnico que une la idempotencia HTTP con la transacción PostgreSQL. El migrador reutiliza el contexto outbound sin acoplar la migración al arranque web.
 
 Las dependencias de compilación apuntan hacia el núcleo:
 
 - `Domain` no referencia ningún proyecto de la solución.
 - `Application` referencia únicamente `Domain`, sin paquetes de DI ni frameworks; los casos de uso implementan puertos de entrada y consumen puertos de salida.
-- `Infrastructure` referencia `Application` y `Domain` para implementar adaptadores de salida.
-- `Api` es simultáneamente host y composition root. Sus controladores dependen de puertos de entrada; `Program` referencia Infrastructure para registrar implementaciones y comprobar PostgreSQL.
+- `Adapters.Inbound` referencia `Application` y `Domain`, nunca implementaciones outbound.
+- `Adapters.Outbound` referencia `Application` y `Domain`, nunca adapters inbound ni API.
+- `Api` referencia ambos lados únicamente para componerlos, registrar implementaciones y comprobar PostgreSQL.
 - `Migrator` es otro host y solo orquesta el adaptador de persistencia para aplicar la historia EF Core.
 
-Los puertos Outbound no importan contratos Inbound. Los criterios y resultados que necesitan ambos lados residen en `Application/Models`. El usuario actual se representa como contexto de ejecución de Application y es suministrado por el host HTTP. Los nombres de eventos y payloads SignalR se traducen exclusivamente dentro de `Api/Adapters/SignalR`; Application publica notificaciones tipadas.
+Los puertos de salida no importan contratos de entrada. Los criterios y resultados que necesitan ambos lados residen en `Application/Models`. El usuario actual es un puerto de salida suministrado por el adapter HTTP. Los nombres de eventos y payloads SignalR se traducen exclusivamente dentro de `ScrumBoard.Adapters.Inbound/SignalR`; Application publica notificaciones tipadas.
 
 Los tests siguen la misma responsabilidad: invariantes bajo `UnitTests/Domain`, casos de uso bajo `UnitTests/Application/UseCases`, reglas de dependencias en `ArchitectureTests` y PostgreSQL real bajo `IntegrationTests`. Karma cubre componentes/servicios Angular y Playwright usa el stack sembrado para móvil, autorización, descarga y una colaboración SignalR con owner/member en contextos de navegador separados y limpieza posterior.
 
@@ -98,7 +101,7 @@ sequenceDiagram
 
 Para los `POST` autenticados marcados como idempotentes, el middleware envuelve el flujo. La clave es global por usuario y el fingerprint incluye operación canónica, valores concretos de ruta, query ordenada, tipo de contenido y cuerpo; usar la misma clave para otra solicitud produce conflicto. La reserva obtiene primero un lease de cinco minutos para excluir ejecuciones concurrentes; después, la mutación y la respuesta replay se guardan en una única transacción. Las notificaciones SignalR se difieren hasta después del commit. Una desconexión o un fallo de tiempo real posterior no elimina la reserva completada ni permite repetir la mutación. El replay conserva durante 24 horas el status, cuerpo textual exacto, tipo de contenido, `Location`, `ETag` y `X-Board-ETag`.
 
-La fila `idempotency_records` es un modelo técnico de persistencia dentro de Infrastructure, no una entidad de Domain ni un puerto de Application. El middleware depende de un coordinador técnico local de API; los controladores y casos de uso permanecen ajenos a EF y a la mecánica HTTP de replay.
+La fila `idempotency_records` es un modelo técnico de `Adapters.Outbound/Persistence`, no una entidad de Domain ni un puerto de Application. El middleware inbound depende de un coordinador técnico cuyo bridge se compone en API; los controladores y casos de uso permanecen ajenos a EF y a la mecánica HTTP de replay.
 
 `If-Match` acepta exactamente una etiqueta fuerte numérica (`"<versión>"`): se rechazan etiqueta débil, wildcard y listas. Ediciones/eliminaciones usan la versión de la entidad. Los movimientos, que afectan orden agregado, y la continuación paginada usan `board_version`. Las mutaciones de columnas/tareas responden con ambos niveles: `ETag` de entidad y `X-Board-ETag` agregado.
 

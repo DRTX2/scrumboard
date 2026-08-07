@@ -1,9 +1,8 @@
 using ScrumBoard.Application.Errors;
-using ScrumBoard.Application.Context;
 using ScrumBoard.Application.Models.Reports;
 using ScrumBoard.Application.Models.Tasks;
 using ScrumBoard.Application.Ports.Inbound.Reports;
-using ScrumBoard.Application.Ports.Outbound;
+using ScrumBoard.Application.Ports.Out;
 
 namespace ScrumBoard.Application.UseCases.Reports;
 

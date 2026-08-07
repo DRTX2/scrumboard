@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
-using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence;
+using ScrumBoard.Adapters.Outbound.Persistence;
 
 namespace ScrumBoard.IntegrationTests.Adapters.Outbound.Persistence;
 

@@ -1,4 +1,3 @@
-using ScrumBoard.Application.Context;
 using ScrumBoard.Application.Errors;
 using ScrumBoard.Application.Models.Boards;
 using ScrumBoard.Application.Models.Common;
@@ -7,7 +6,7 @@ using ScrumBoard.Application.Models.Reports;
 using ScrumBoard.Application.Models.Security;
 using ScrumBoard.Application.Models.Tasks;
 using ScrumBoard.Application.Ports.Inbound.Boards;
-using ScrumBoard.Application.Ports.Outbound;
+using ScrumBoard.Application.Ports.Out;
 using ScrumBoard.Domain.Boards;
 using ScrumBoard.Domain.Projects;
 using ScrumBoard.Domain.Tasks;

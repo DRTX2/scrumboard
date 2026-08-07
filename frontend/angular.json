@@ -30,10 +30,19 @@
             "inlineStyleLanguage": "scss",
             "assets": [
               "src/favicon.ico",
-              "src/assets"
+              "src/assets",
+              {
+                "glob": "theme.css",
+                "input": "node_modules/primeng/resources/themes/lara-light-blue",
+                "output": "assets/themes/lara-light-blue"
+              },
+              {
+                "glob": "theme.css",
+                "input": "node_modules/primeng/resources/themes/lara-dark-blue",
+                "output": "assets/themes/lara-dark-blue"
+              }
             ],
             "styles": [
-              "node_modules/primeng/resources/themes/lara-light-blue/theme.css",
               "node_modules/primeng/resources/primeng.css",
               "node_modules/primeflex/primeflex.css",
               "node_modules/primeicons/primeicons.css",
@@ -95,10 +104,19 @@
             "inlineStyleLanguage": "scss",
             "assets": [
               "src/favicon.ico",
-              "src/assets"
+              "src/assets",
+              {
+                "glob": "theme.css",
+                "input": "node_modules/primeng/resources/themes/lara-light-blue",
+                "output": "assets/themes/lara-light-blue"
+              },
+              {
+                "glob": "theme.css",
+                "input": "node_modules/primeng/resources/themes/lara-dark-blue",
+                "output": "assets/themes/lara-dark-blue"
+              }
             ],
             "styles": [
-              "node_modules/primeng/resources/themes/lara-light-blue/theme.css",
               "node_modules/primeng/resources/primeng.css",
               "node_modules/primeflex/primeflex.css",
               "node_modules/primeicons/primeicons.css",

@@ -109,12 +109,13 @@ Una tarea siempre requiere responsable y este debe ser miembro del mismo proyect
 
 ## Arquitectura
 
-La solución sigue una separación por capas:
+La solución hace explícita una arquitectura hexagonal mediante proyectos independientes:
 
 - `ScrumBoard.Domain`: entidades, invariantes y ordenamiento.
-- `ScrumBoard.Application`: modelos neutrales, puertos `Inbound`/`Outbound` y casos de uso, sin dependencias de frameworks o DI.
-- `ScrumBoard.Infrastructure`: adaptadores de salida y configuración de EF Core/Npgsql, JWT, PBKDF2, tiempo y reportes PDF/XLSX.
-- `ScrumBoard.Api`: adaptador de entrada HTTP, adaptador bidireccional SignalR, idempotencia técnica, composition root, Problem Details, autenticación, rate limiting y salud.
+- `ScrumBoard.Application`: modelos neutrales, `Ports/In`, `Ports/Out` y casos de uso, sin dependencias de frameworks o DI.
+- `ScrumBoard.Adapters.Inbound`: HTTP, SignalR, identidad de la solicitud, Problem Details, ETags e idempotencia HTTP.
+- `ScrumBoard.Adapters.Outbound`: EF Core/Npgsql, JWT, PBKDF2, tiempo y reportes PDF/XLSX.
+- `ScrumBoard.Api`: host y composition root; configura autenticación, CORS, rate limiting, salud, telemetría y el bridge transaccional de idempotencia.
 - `ScrumBoard.Migrator`: ejecutable independiente que aplica migraciones antes del arranque.
 - `frontend`: SPA Angular/PrimeNG con shell Sakai adaptable, servida por nginx no privilegiado y con configuración de endpoints en tiempo de ejecución.
 
@@ -225,7 +226,7 @@ dotnet test ScrumBoard.sln --configuration Release --no-build --collect:"XPlat C
 
 La solución .NET cubre invariantes de dominio, validación y permisos de casos de uso, contratos HTTP, ETags/idempotencia, exportadores, reglas de arquitectura y persistencia/migraciones sobre PostgreSQL real. Las pruebas de integración usan Testcontainers, por lo que Docker debe estar disponible. La descripción evita fijar un total de casos que quedaría obsoleto al agregar pruebas.
 
-Las migraciones viven con el adaptador PostgreSQL en `src/ScrumBoard.Infrastructure/Adapters/Outbound/Persistence/Migrations` y se aplican únicamente mediante `ScrumBoard.Migrator`, antes de iniciar la API. La migración incremental más reciente es `20260806021724_RequireTaskAssigneeAndAddChecks`: repara responsables nulos o ajenos al proyecto asignándolos al owner determinista, falla si no existe owner y luego hace obligatorio el responsable y crea FKs compuestas, checks e índices endurecidos. No es necesario recrear volúmenes anteriores que ya tengan la historia versionada; `docker compose down --volumes` se reserva para borrar intencionalmente todos los datos locales.
+Las migraciones viven con el adaptador PostgreSQL en `src/ScrumBoard.Adapters.Outbound/Persistence/Migrations` y se aplican únicamente mediante `ScrumBoard.Migrator`, antes de iniciar la API. La migración incremental más reciente es `20260806021724_RequireTaskAssigneeAndAddChecks`: repara responsables nulos o ajenos al proyecto asignándolos al owner determinista, falla si no existe owner y luego hace obligatorio el responsable y crea FKs compuestas, checks e índices endurecidos. No es necesario recrear volúmenes anteriores que ya tengan la historia versionada; `docker compose down --volumes` se reserva para borrar intencionalmente todos los datos locales.
 
 La estrategia y el orden de migraciones están documentados en [arquitectura](docs/architecture.md#historia-de-migraciones).
 

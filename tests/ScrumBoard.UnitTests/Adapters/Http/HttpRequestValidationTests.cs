@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.Http;
-using ScrumBoard.Api.Adapters.Inbound.Http.Contracts;
-using ScrumBoard.Api.Infrastructure;
+using ScrumBoard.Adapters.Inbound.Http.Contracts;
+using ScrumBoard.Adapters.Inbound.Infrastructure;
 using ScrumBoard.Application.Models.Projects;
 using ScrumBoard.Domain.Projects;
 using ScrumBoard.Domain.Tasks;

@@ -6,7 +6,7 @@ WORKDIR /src
 COPY .editorconfig global.json Directory.Build.props Directory.Packages.props ./
 COPY src/ScrumBoard.Domain/ScrumBoard.Domain.csproj src/ScrumBoard.Domain/
 COPY src/ScrumBoard.Application/ScrumBoard.Application.csproj src/ScrumBoard.Application/
-COPY src/ScrumBoard.Infrastructure/ScrumBoard.Infrastructure.csproj src/ScrumBoard.Infrastructure/
+COPY src/ScrumBoard.Adapters.Outbound/ScrumBoard.Adapters.Outbound.csproj src/ScrumBoard.Adapters.Outbound/
 COPY src/ScrumBoard.Migrator/ScrumBoard.Migrator.csproj src/ScrumBoard.Migrator/
 RUN dotnet restore src/ScrumBoard.Migrator/ScrumBoard.Migrator.csproj
 

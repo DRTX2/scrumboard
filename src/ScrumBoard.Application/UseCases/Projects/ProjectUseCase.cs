@@ -1,9 +1,8 @@
 using ScrumBoard.Application.Errors;
-using ScrumBoard.Application.Context;
 using ScrumBoard.Application.Models.Common;
 using ScrumBoard.Application.Models.Projects;
 using ScrumBoard.Application.Ports.Inbound.Projects;
-using ScrumBoard.Application.Ports.Outbound;
+using ScrumBoard.Application.Ports.Out;
 using ScrumBoard.Domain.Projects;
 
 namespace ScrumBoard.Application.UseCases.Projects;

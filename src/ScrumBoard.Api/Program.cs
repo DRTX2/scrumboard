@@ -16,16 +16,16 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using Scalar.AspNetCore;
-using ScrumBoard.Api.Adapters.Outbound.Persistence;
-using ScrumBoard.Api.Adapters.SignalR;
+using ScrumBoard.Adapters.Inbound.Http;
+using ScrumBoard.Adapters.Inbound.Infrastructure;
+using ScrumBoard.Adapters.Inbound.Infrastructure.Idempotency;
+using ScrumBoard.Adapters.Inbound.SignalR;
+using ScrumBoard.Adapters.Outbound.Configuration;
+using ScrumBoard.Adapters.Outbound.Persistence;
+using ScrumBoard.Adapters.Outbound.Security;
+using ScrumBoard.Api.Composition.Idempotency;
 using ScrumBoard.Api.Configuration;
-using ScrumBoard.Api.Infrastructure;
-using ScrumBoard.Api.Infrastructure.Idempotency;
-using ScrumBoard.Application.Context;
-using ScrumBoard.Application.Ports.Outbound;
-using ScrumBoard.Infrastructure.Configuration;
-using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence;
-using ScrumBoard.Infrastructure.Adapters.Outbound.Security;
+using ScrumBoard.Application.Ports.Out;
 
 var builder = WebApplication.CreateBuilder(args);
 var maintenanceMode = builder.Configuration.GetValue<bool>("MaintenanceMode");
@@ -45,7 +45,7 @@ if (forwardedHeadersEnabled)
 }
 
 builder.Services.AddApplicationUseCases();
-builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddOutboundAdapters(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
 builder.Services.AddScoped<IIdempotencyCoordinator, PostgreSqlIdempotencyCoordinator>();
@@ -57,9 +57,12 @@ builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = 
 {
     context.ProblemDetails.Extensions["traceId"] = context.HttpContext.TraceIdentifier;
 });
-builder.Services.AddControllers().AddJsonOptions(options =>
-    options.JsonSerializerOptions.Converters.Add(
-        new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false)));
+builder.Services
+    .AddControllers()
+    .AddApplicationPart(typeof(BoardsController).Assembly)
+    .AddJsonOptions(options =>
+        options.JsonSerializerOptions.Converters.Add(
+            new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false)));
 builder.Services.Configure<ApiBehaviorOptions>(options =>
 {
     options.InvalidModelStateResponseFactory = context =>
