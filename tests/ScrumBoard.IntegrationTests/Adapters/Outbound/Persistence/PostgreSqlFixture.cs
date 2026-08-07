@@ -4,8 +4,8 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using ScrumBoard.Infrastructure.Configuration;
-using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence;
+using ScrumBoard.Adapters.Outbound.Configuration;
+using ScrumBoard.Adapters.Outbound.Persistence;
 using Testcontainers.PostgreSql;
 
 namespace ScrumBoard.IntegrationTests.Adapters.Outbound.Persistence;
@@ -71,7 +71,7 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
             })
             .Build();
         var services = new ServiceCollection();
-        services.AddInfrastructure(configuration);
+        services.AddOutboundAdapters(configuration);
         return services.BuildServiceProvider(validateScopes: true);
     }
 

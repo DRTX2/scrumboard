@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\ScrumBoard.Infrastructure\ScrumBoard.Infrastructure.csproj" />
+    <ProjectReference Include="..\ScrumBoard.Adapters.Outbound\ScrumBoard.Adapters.Outbound.csproj" />
   </ItemGroup>
 
   <ItemGroup>

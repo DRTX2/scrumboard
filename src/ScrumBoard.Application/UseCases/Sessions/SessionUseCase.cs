@@ -1,6 +1,6 @@
 using ScrumBoard.Application.Errors;
 using ScrumBoard.Application.Ports.Inbound.Sessions;
-using ScrumBoard.Application.Ports.Outbound;
+using ScrumBoard.Application.Ports.Out;
 
 namespace ScrumBoard.Application.UseCases.Sessions;
 

@@ -1,4 +1,4 @@
-using ScrumBoard.Api.Adapters.SignalR;
+using ScrumBoard.Adapters.Inbound.SignalR;
 
 namespace ScrumBoard.UnitTests.Adapters.SignalR;
 

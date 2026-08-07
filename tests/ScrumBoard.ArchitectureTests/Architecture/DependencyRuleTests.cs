@@ -1,11 +1,13 @@
 using System.Reflection;
 using NetArchTest.Rules;
+using ScrumBoard.Adapters.Inbound.Http;
+using ScrumBoard.Adapters.Inbound.SignalR;
+using ScrumBoard.Adapters.Outbound.Persistence;
 using ScrumBoard.Application.Models.Projects;
 using ScrumBoard.Application.Ports.Inbound.Boards;
-using ScrumBoard.Application.Ports.Outbound;
+using ScrumBoard.Application.Ports.Out;
 using ScrumBoard.Application.UseCases.Projects;
 using ScrumBoard.Domain.Projects;
-using ScrumBoard.Infrastructure.Adapters.Outbound.Persistence;
 
 namespace ScrumBoard.ArchitectureTests.Architecture;
 
@@ -16,7 +18,11 @@ public sealed class DependencyRuleTests
     {
         var result = Types.InAssembly(typeof(Project).Assembly)
             .ShouldNot()
-            .HaveDependencyOnAny("ScrumBoard.Application", "ScrumBoard.Infrastructure", "ScrumBoard.Api")
+            .HaveDependencyOnAny(
+                "ScrumBoard.Application",
+                "ScrumBoard.Adapters.Inbound",
+                "ScrumBoard.Adapters.Outbound",
+                "ScrumBoard.Api")
             .GetResult();
 
         AssertRule(result);
@@ -26,11 +32,14 @@ public sealed class DependencyRuleTests
     }
 
     [Fact]
-    public void Application_DoesNotDependOnInfrastructureOrApi()
+    public void Application_DoesNotDependOnAdaptersOrApi()
     {
         var result = Types.InAssembly(typeof(ProjectUseCase).Assembly)
             .ShouldNot()
-            .HaveDependencyOnAny("ScrumBoard.Infrastructure", "ScrumBoard.Api")
+            .HaveDependencyOnAny(
+                "ScrumBoard.Adapters.Inbound",
+                "ScrumBoard.Adapters.Outbound",
+                "ScrumBoard.Api")
             .GetResult();
 
         AssertRule(result);
@@ -40,39 +49,38 @@ public sealed class DependencyRuleTests
     }
 
     [Fact]
-    public void Infrastructure_DoesNotDependOnApi()
+    public void OutboundAdapters_DoNotDependOnInboundAdaptersOrApi()
     {
         var result = Types.InAssembly(typeof(ScrumBoardDbContext).Assembly)
             .ShouldNot()
-            .HaveDependencyOn("ScrumBoard.Api")
+            .HaveDependencyOnAny("ScrumBoard.Adapters.Inbound", "ScrumBoard.Api")
             .GetResult();
 
         AssertRule(result);
     }
 
     [Fact]
-    public void ApiControllers_DoNotDependDirectlyOnInfrastructure()
+    public void HttpControllers_DoNotDependOnOutboundAdapters()
     {
-        var result = Types.InAssembly(typeof(Program).Assembly)
+        var result = Types.InAssembly(typeof(BoardsController).Assembly)
             .That()
-            .ResideInNamespaceStartingWith("ScrumBoard.Api.Adapters.Inbound.Http")
+            .ResideInNamespaceStartingWith("ScrumBoard.Adapters.Inbound.Http")
             .ShouldNot()
-            .HaveDependencyOn("ScrumBoard.Infrastructure")
+            .HaveDependencyOnAny("ScrumBoard.Adapters.Outbound", "Microsoft.EntityFrameworkCore")
             .GetResult();
 
         AssertRule(result);
     }
 
     [Fact]
-    public void ApiInfrastructure_DoesNotDependDirectlyOnInfrastructureAdapters()
+    public void InboundInfrastructure_DoesNotDependOnOutboundAdapters()
     {
-        var result = Types.InAssembly(typeof(Program).Assembly)
+        var result = Types.InAssembly(typeof(BoardsController).Assembly)
             .That()
-            .ResideInNamespaceStartingWith("ScrumBoard.Api.Infrastructure")
+            .ResideInNamespaceStartingWith("ScrumBoard.Adapters.Inbound.Infrastructure")
             .ShouldNot()
             .HaveDependencyOnAny(
-                "ScrumBoard.Application.Ports.Outbound",
-                "ScrumBoard.Infrastructure",
+                "ScrumBoard.Adapters.Outbound",
                 "Microsoft.EntityFrameworkCore")
             .GetResult();
 
@@ -80,13 +88,17 @@ public sealed class DependencyRuleTests
     }
 
     [Fact]
-    public void InboundPorts_DoNotDependOnUseCasesOrInfrastructure()
+    public void InboundPorts_DoNotDependOnUseCasesOrAdapters()
     {
         var result = Types.InAssembly(typeof(IBoardUseCase).Assembly)
             .That()
             .ResideInNamespaceStartingWith("ScrumBoard.Application.Ports.Inbound")
             .ShouldNot()
-            .HaveDependencyOnAny("ScrumBoard.Application.UseCases", "ScrumBoard.Infrastructure", "ScrumBoard.Api")
+            .HaveDependencyOnAny(
+                "ScrumBoard.Application.UseCases",
+                "ScrumBoard.Adapters.Inbound",
+                "ScrumBoard.Adapters.Outbound",
+                "ScrumBoard.Api")
             .GetResult();
 
         AssertRule(result);
@@ -97,18 +109,19 @@ public sealed class DependencyRuleTests
     {
         var result = Types.InAssembly(typeof(IBoardRepository).Assembly)
             .That()
-            .ResideInNamespaceStartingWith("ScrumBoard.Application.Ports.Outbound")
+            .ResideInNamespaceStartingWith("ScrumBoard.Application.Ports.Out")
             .ShouldNot()
             .HaveDependencyOnAny(
                 "ScrumBoard.Application.Ports.Inbound",
                 "ScrumBoard.Application.UseCases",
-                "ScrumBoard.Infrastructure",
+                "ScrumBoard.Adapters.Inbound",
+                "ScrumBoard.Adapters.Outbound",
                 "ScrumBoard.Api")
             .GetResult();
 
         AssertRule(result);
         var objectParameters = typeof(IBoardRepository).Assembly.GetTypes()
-            .Where(type => type.IsInterface && type.Namespace == "ScrumBoard.Application.Ports.Outbound")
+            .Where(type => type.IsInterface && type.Namespace == "ScrumBoard.Application.Ports.Out")
             .SelectMany(type => type.GetMethods())
             .SelectMany(method => method.GetParameters())
             .Where(parameter => parameter.ParameterType == typeof(object))
@@ -126,7 +139,8 @@ public sealed class DependencyRuleTests
             .HaveDependencyOnAny(
                 "ScrumBoard.Application.Ports",
                 "ScrumBoard.Application.UseCases",
-                "ScrumBoard.Infrastructure",
+                "ScrumBoard.Adapters.Inbound",
+                "ScrumBoard.Adapters.Outbound",
                 "ScrumBoard.Api")
             .GetResult();
 
@@ -134,11 +148,11 @@ public sealed class DependencyRuleTests
     }
 
     [Fact]
-    public void InfrastructureAdapters_DoNotDependOnInboundPorts()
+    public void OutboundAdapters_DoNotDependOnInboundPorts()
     {
         var result = Types.InAssembly(typeof(ScrumBoardDbContext).Assembly)
             .That()
-            .ResideInNamespaceStartingWith("ScrumBoard.Infrastructure.Adapters.Outbound")
+            .ResideInNamespaceStartingWith("ScrumBoard.Adapters.Outbound")
             .ShouldNot()
             .HaveDependencyOn("ScrumBoard.Application.Ports.Inbound")
             .GetResult();
@@ -149,9 +163,9 @@ public sealed class DependencyRuleTests
     [Fact]
     public void SignalRTypes_UseOneTechnicalAdapterNamespace()
     {
-        var misplaced = typeof(Program).Assembly.GetTypes()
+        var misplaced = typeof(BoardHub).Assembly.GetTypes()
             .Where(type => type.Namespace?.Contains("SignalR", StringComparison.Ordinal) is true)
-            .Where(type => type.Namespace != "ScrumBoard.Api.Adapters.SignalR")
+            .Where(type => type.Namespace != "ScrumBoard.Adapters.Inbound.SignalR")
             .Select(type => type.FullName)
             .ToList();
 
@@ -159,11 +173,11 @@ public sealed class DependencyRuleTests
     }
 
     [Fact]
-    public void Migrator_DependsOnlyOnInfrastructureWithinTheSolution()
+    public void Migrator_DependsOnlyOnOutboundAdaptersWithinTheSolution()
     {
         var assembly = Assembly.Load("ScrumBoard.Migrator");
 
-        Assert.Equal(["ScrumBoard.Infrastructure"], SolutionReferences(assembly));
+        Assert.Equal(["ScrumBoard.Adapters.Outbound"], SolutionReferences(assembly));
     }
 
     private static string[] SolutionReferences(Assembly assembly) =>

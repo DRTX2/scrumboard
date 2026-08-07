@@ -27,6 +27,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\ScrumBoard.Domain\ScrumBoard.Domain.csproj" />
     <ProjectReference Include="..\..\src\ScrumBoard.Application\ScrumBoard.Application.csproj" />
+    <ProjectReference Include="..\..\src\ScrumBoard.Adapters.Inbound\ScrumBoard.Adapters.Inbound.csproj" />
+    <ProjectReference Include="..\..\src\ScrumBoard.Adapters.Outbound\ScrumBoard.Adapters.Outbound.csproj" />
     <ProjectReference Include="..\..\src\ScrumBoard.Api\ScrumBoard.Api.csproj" />
   </ItemGroup>
 

@@ -1,12 +1,12 @@
 using ClosedXML.Excel;
 using Microsoft.Extensions.DependencyInjection;
 using QuestPDF.Infrastructure;
+using ScrumBoard.Adapters.Outbound.Configuration;
+using ScrumBoard.Adapters.Outbound.Reporting;
 using ScrumBoard.Application.Models.Reports;
-using ScrumBoard.Application.Ports.Outbound;
+using ScrumBoard.Application.Ports.Out;
 using ScrumBoard.Domain.Projects;
 using ScrumBoard.Domain.Tasks;
-using ScrumBoard.Infrastructure.Adapters.Outbound.Reporting;
-using ScrumBoard.Infrastructure.Configuration;
 
 namespace ScrumBoard.UnitTests.Adapters.Reporting;
 

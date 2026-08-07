@@ -1,9 +1,8 @@
-using ScrumBoard.Application.Context;
 using ScrumBoard.Application.Errors;
 using ScrumBoard.Application.Models.Boards;
 using ScrumBoard.Application.Models.Tasks;
 using ScrumBoard.Application.Ports.Inbound.Boards;
-using ScrumBoard.Application.Ports.Outbound;
+using ScrumBoard.Application.Ports.Out;
 using ScrumBoard.Domain.Boards;
 using ScrumBoard.Domain.Ordering;
 using ScrumBoard.Domain.Primitives;

@@ -1,5 +1,5 @@
 using System.Globalization;
-using ScrumBoard.Infrastructure.Adapters.Outbound.Reporting;
+using ScrumBoard.Adapters.Outbound.Reporting;
 
 namespace ScrumBoard.UnitTests.Adapters.Reporting;
 

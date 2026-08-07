@@ -1,5 +1,5 @@
-using ScrumBoard.Infrastructure.Adapters.Outbound.Security;
-using ScrumBoard.Infrastructure.Configuration;
+using ScrumBoard.Adapters.Outbound.Configuration;
+using ScrumBoard.Adapters.Outbound.Security;
 
 namespace ScrumBoard.UnitTests.Infrastructure;
 
