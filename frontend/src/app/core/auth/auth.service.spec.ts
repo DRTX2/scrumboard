@@ -29,7 +29,7 @@ describe('AuthService', () => {
     service.login('ana@example.com', 'secret').subscribe();
     http.expectOne('/sessions').flush({ accessToken: token, user: { id: 'u1', name: 'Ana' } });
     expect(service.token()).toBe(token);
-    expect(localStorage.length).toBe(0);
+    expect(localStorage.getItem('scrumboard.session')).toBeNull();
     expect(service.user()?.name).toBe('Ana');
   });
 
