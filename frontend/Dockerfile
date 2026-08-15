@@ -12,7 +12,8 @@ RUN apk upgrade --no-cache && apk add --no-cache gettext
 COPY --from=build --chown=101:101 /app/dist/scrum-board/browser /usr/share/nginx/html
 COPY --chown=101:101 nginx.conf.template /etc/nginx/nginx.conf.template
 COPY --chown=101:101 docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod 755 /docker-entrypoint.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.sh \
+    && chmod 755 /docker-entrypoint.sh
 USER 101
 EXPOSE 8080
 ENTRYPOINT ["/docker-entrypoint.sh"]
